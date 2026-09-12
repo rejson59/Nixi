@@ -16,7 +16,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt -r requirements-build.txt
+          pip install -r requirements.txt -r requirements-build.txt -r requirements-acoustics.txt
 
       - name: Generate icon
         run: python scripts/gen_icon.py

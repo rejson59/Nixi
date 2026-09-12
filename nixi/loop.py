@@ -184,10 +184,11 @@ def main(argv: list[str] | None = None) -> int:
     log.info("Nixi %s startuje…", version.__version__)
 
     if args.reset_settings:
-        try:
-            paths.settings_path().unlink(missing_ok=True)
-        except Exception:  # noqa: BLE001
-            pass
+        for settings_file in (paths.settings_path(), paths.settings_local_path()):
+            try:
+                settings_file.unlink(missing_ok=True)
+            except Exception:  # noqa: BLE001
+                pass
 
     if not args.no_single:
         guard = _single_instance_guard(log)

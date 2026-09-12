@@ -1,0 +1,31 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Nixi: tryb okienkowy",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "nixi",
+            "args": ["--windowed", "--verbose"],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "Nixi: samotesty",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "nixi.selftest",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "Nixi: samotesty bez QML",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "nixi.selftest",
+            "args": ["--skip-ui"],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        }
+    ]
+}

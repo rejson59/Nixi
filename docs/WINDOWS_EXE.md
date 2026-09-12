@@ -47,12 +47,14 @@ Dwa sposoby:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1
+# opcjonalnie: pełny test akustyczny wake word
+powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1 -Acoustics
 ```
 
-Skrypt: instaluje zależności → generuje ikonę → uruchamia **samotest z testem akustycznym**
-(synteza „Hej Nixi" Piper → VOSK → asercja wykrycia + test negatywny; build pada, jeśli
-wake word nie działa) → `pyinstaller Nixi.spec` → `dist/Nixi.exe` (onefile, windowed,
-ikona, metadane wersji).
+Skrypt: instaluje zależności uruchomieniowe i PyInstaller → generuje ikonę → uruchamia
+samotesty → `pyinstaller Nixi.spec` → `dist/Nixi.exe` (onefile, windowed, ikona, metadane
+wersji). Opcjonalny test akustyczny (synteza „Hej Nixi" Piper → VOSK → test pozytywny i
+negatywny) włącz przez `-Acoustics`; wtedy skrypt doinstaluje `requirements-acoustics.txt`.
 
 **B. GitHub Actions:** skopiuj `docs/build-windows.workflow.yml` do
 `.github/workflows/build-windows.yml` w swoim repozytorium i uruchom workflow

@@ -1,0 +1,46 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Nixi: uruchom tryb okienkowy",
+            "type": "shell",
+            "command": "python",
+            "args": ["-m", "nixi", "--windowed", "--verbose"],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Nixi: uruchom samotesty",
+            "type": "shell",
+            "command": "python",
+            "args": ["-m", "nixi.selftest"],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Nixi: zbuduj Windows .exe",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                "scripts\\build_windows.ps1"
+            ],
+            "windows": {
+                "command": "powershell.exe"
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": []
+        }
+    ]
+}

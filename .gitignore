@@ -8,6 +8,7 @@ __pycache__/
 build/
 dist/
 *.egg-info/
+nixi/assets/
 
 # Dane lokalne / testy
 nixi_data/

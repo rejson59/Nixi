@@ -1,4 +1,2 @@
-# Wymagania do budowy .exe i testów akustycznych (CI)
+# Nixi — wymagania do budowy pliku .exe
 pyinstaller>=6.6
-piper-tts>=1.2
-piper-phonemize>=1.1

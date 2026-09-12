@@ -42,6 +42,7 @@ class WakeWordDetector:
         self,
         phrases: list[str],
         *,
+        model_name: str = VOSK_MODEL_NAME,
         model_dir: str | None = None,
         allow_bare_nixi: bool = False,
         cooldown_s: float = 2.5,
@@ -51,8 +52,14 @@ class WakeWordDetector:
         logger: logging.Logger | None = None,
     ):
         self.log = logger or logging.getLogger("nixi.wake")
-        self.phrases = phrases or []
-        self._compiled = [re.compile(p, re.IGNORECASE) for p in self.phrases]
+        self.model_name = (model_name or VOSK_MODEL_NAME).strip() or VOSK_MODEL_NAME
+        self.phrases = [str(p).strip() for p in (phrases or []) if str(p).strip()]
+        self._compiled = []
+        for phrase in self.phrases:
+            try:
+                self._compiled.append(re.compile(phrase, re.IGNORECASE))
+            except re.error as exc:
+                self.log.warning("Pomijam nieprawidłową frazę wake word %r: %s", phrase, exc)
         self._bare = allow_bare_nixi
         self._bare_res = [re.compile(r"\bnixi\b", re.IGNORECASE), re.compile(r"\bniki\b", re.IGNORECASE)]
         self._cooldown = cooldown_s
@@ -116,11 +123,11 @@ class WakeWordDetector:
     def _resolve_model_dir(self) -> str | None:
         if self._model_dir and Path(self._model_dir).is_dir():
             return str(Path(self._model_dir))
-        model_dir = paths.vosk_model_path(VOSK_MODEL_NAME)
+        model_dir = paths.vosk_model_path(self.model_name)
         if (model_dir / "am").is_dir():
             return str(model_dir)
         # spróbuj też starszej lokalizacji (cache)
-        alt = paths.cache_dir() / VOSK_MODEL_NAME
+        alt = paths.cache_dir() / self.model_name
         if (alt / "am").is_dir():
             return str(alt)
         return self._download_model()
@@ -130,10 +137,10 @@ class WakeWordDetector:
 
         import requests
 
-        target = paths.vosk_model_path(VOSK_MODEL_NAME)
+        target = paths.vosk_model_path(self.model_name)
         errors = []
         for url in VOSK_DOWNLOAD_URLS:
-            full = url.format(name=VOSK_MODEL_NAME)
+            full = url.format(name=self.model_name)
             try:
                 if self._on_status:
                     self._on_status("Pobieram model rozpoznawania mowy (ok. 40 MB)…")

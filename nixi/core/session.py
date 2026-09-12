@@ -506,7 +506,12 @@ class ConversationSession:
 
     def _on_goaway(self) -> None:
         self.log.info("Live API: goAway — ponowne połączenie.")
+        old = self._client
         self._client = None
+        # Zamknij poprzedni socket, aby jego pętla odbioru nie została osierocona
+        # po utworzeniu nowego połączenia.
+        if old is not None:
+            asyncio.get_running_loop().create_task(old.close())
         asyncio.get_running_loop().create_task(self._reconnect_soon())
 
     async def _reconnect_soon(self) -> None:

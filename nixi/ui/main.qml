@@ -101,6 +101,16 @@ Item {
         shaderEnabled: bridge.uiShaderEnabled
     }
 
+    // Tło obsługuje wyłącznie podwójny klik. Musi znajdować się przed
+    // przyciskami i polem ustawień w kolejności dzieci QML — inaczej zasłoniłoby
+    // je i pojedynczy klik w „Zaczynamy”/⚙ nigdy by do nich nie dotarł.
+    MouseArea {
+        anchors.fill: parent
+        acceptedButtons: Qt.LeftButton
+        onClicked: { /* pojedynczy klik: nic — unikamy przypadkowych akcji */ }
+        onDoubleClicked: bridge.toggleListen()
+    }
+
     // słupki głosu (mówienie)
     Row {
         anchors.horizontalCenter: parent.horizontalCenter
@@ -367,14 +377,6 @@ Item {
         active: false
         source: "Settings.qml"
         onLoaded: { item.show(); }
-    }
-
-    // ---------------------------------------------- interakcja z kulą
-    MouseArea {
-        anchors.fill: parent
-        acceptedButtons: Qt.LeftButton
-        onClicked: { /* pojedynczy klik: nic — unikamy przypadkowych akcji */ }
-        onDoubleClicked: bridge.toggleListen()
     }
 
     Keys.onEscapePressed: { if (bridge.isActive()) bridge.endSessionNow(); }

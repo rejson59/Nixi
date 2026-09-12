@@ -84,24 +84,83 @@ Opcjonalnie: w ustawieniach zaznacz **„Uruchamiaj Nixi razem z systemem"** —
 | `Esc` (podczas aktywnej sesji) | zakończ nasłuch |
 | podwójny klik na kulę | włącz / wyłącz |
 
+## Uruchomienie w VS Code (Windows)
+
+Nixi można najpierw uruchomić ze źródeł — do testów nie potrzebujesz jeszcze pliku `.exe`.
+Potrzebujesz 64-bitowego **Pythona 3.11 lub 3.12**, Gita, VS Code z rozszerzeniem
+**Python** oraz mikrofonu. Plik `.exe` buduj później na Windows, najlepiej na tej samej
+architekturze, na której będzie używany.
+
+```powershell
+# 1. Klonowanie
+git clone https://github.com/rejson59/Nixi.git
+cd Nixi
+code .
+
+# 2. Środowisko w terminalu VS Code (PowerShell)
+py -3.12 -m venv .venv
+Set-ExecutionPolicy -Scope Process Bypass
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m pip install -r requirements-build.txt
+
+# 3. Uruchomienie — bez klucza API włączy się bezpieczny tryb demo
+python -m nixi --windowed --verbose
+```
+
+W VS Code wybierz `Python: Select Interpreter` i wskaż
+`.venv\Scripts\python.exe`. W repozytorium są gotowe konfiguracje w `.vscode`:
+`Nixi: tryb okienkowy` oraz `Nixi: samotesty`. Alternatywnie można uruchomić
+`python -m nixi.selftest` z terminala.
+
+Klucz Gemini możesz wkleić w ustawieniach aplikacji albo ustawić tylko na czas bieżącego
+terminala:
+
+```powershell
+$env:GEMINI_API_KEY = "AIza..."
+python -m nixi --windowed --verbose
+```
+
+Bez klucza przetestujesz interfejs i przepływ demo. Po dodaniu klucza potrzebny jest internet;
+przy pierwszym uruchomieniu pobierany jest lokalny model VOSK do słowa „Hej Nixi”. Jeśli
+mikrofon/model nie jest jeszcze gotowy, użyj skrótu `Ctrl+Shift+Alt+N`.
+
+### Testy i budowa `.exe`
+
+```powershell
+# samotesty: pamięć, VAD, stany, narzędzia i mock Live API
+python -m nixi.selftest
+
+# opcjonalny, dłuższy test akustyczny Piper → VOSK
+python -m pip install -r requirements-acoustics.txt
+python -m nixi.selftest --acoustics
+
+# opcjonalny zrzut testowego interfejsu
+python -m nixi.selftest --screenshot tests_output\ui.png
+
+# lokalna budowa (generuje dist\Nixi.exe)
+powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1
+
+# wariant z opcjonalnym testem akustycznym
+powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1 -Acoustics
+```
+
+Jeśli testujesz na Linuxie bez bibliotek OpenGL, test QML może zostać oznaczony jako pominięty;
+na Windows uruchomi się normalnie. Sam `Nixi.exe` musi być budowany na Windows przez PyInstaller.
+
+Klucz API nie trafia do repozytorium: aplikacja zapisuje go lokalnie w
+`%LOCALAPPDATA%\Nixi\settings.local.json`, a pozostałe ustawienia w `settings.json`.
+
 ## Dla deweloperów
 
 ```bash
-# środowisko
+# Linux/macOS — środowisko
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt -r requirements-build.txt
 
 # uruchomienie (okno deweloperskie)
 python -m nixi --windowed --verbose
-
-# testy (mock Live API, pamięć, VAD, stany, QML…)
-python -m nixi.selftest
-python -m nixi.selftest --acoustics        # test akustyczny „Hej Nixi” (Piper→VOSK)
-python -m nixi.selftest --screenshot ui.png
-
-# budowa .exe (Windows)
-python scripts/gen_icon.py
-pyinstaller --noconfirm --clean Nixi.spec   # → dist/Nixi.exe
 ```
 
 Struktura:

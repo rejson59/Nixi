@@ -1,4 +1,4 @@
-# Aplikacja Nixi — wymagania do uruchomienia (dewelopersko / build)
+# Nixi — wymagania uruchomieniowe (dewelopersko)
 PySide6-Essentials>=6.6
 numpy>=1.24
 sounddevice>=0.4.6

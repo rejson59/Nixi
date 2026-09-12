@@ -4,6 +4,7 @@ Użycie:
     python -m nixi.selftest                 # testy podstawowe
     python -m nixi.selftest --acoustics     # + test akustyczny wake worda (Piper+VOSK)
     python -m nixi.selftest --screenshot p.png  # render UI do pliku PNG
+    python -m nixi.selftest --skip-ui       # środowiska headless bez Qt/OpenGL
 """
 from __future__ import annotations
 
@@ -22,6 +23,11 @@ from pathlib import Path
 import numpy as np
 
 FAILURES: list[str] = []
+SKIPPED: list[tuple[str, str]] = []
+
+
+class SkipTest(Exception):
+    """Test pominięty, bo środowisko nie udostępnia wymaganej funkcji."""
 
 
 def check(name: str, fn) -> None:
@@ -29,6 +35,9 @@ def check(name: str, fn) -> None:
     try:
         fn()
         print(f"  ✓ {name}  ({time.monotonic() - t0:.2f}s)")
+    except SkipTest as e:
+        SKIPPED.append((name, str(e)))
+        print(f"  ⊘ {name}: pominięto — {e}")
     except Exception as e:  # noqa: BLE001
         FAILURES.append(name)
         import traceback
@@ -64,6 +73,7 @@ def test_state_machine() -> None:
 # ------------------------------------------------------------ 2. konfiguracja
 def test_config() -> None:
     from dataclasses import asdict
+    from unittest.mock import patch
 
     from nixi import config as C
 
@@ -74,7 +84,27 @@ def test_config() -> None:
     assert ok
     ok, msg = C.validate_api_key("AQ.Ab8RN6im" + "x" * 42)
     assert not ok, "token OAuth nie powinien przejść walidacji klucza"
-    assert C.resolve_api_key(C.AppSettings(api_key="")) == ("", "none")
+
+    tmp = Path(tempfile.mkdtemp())
+    with patch.object(C.paths, "settings_path", return_value=tmp / "settings.json"), \
+         patch.object(C.paths, "settings_local_path", return_value=tmp / "settings.local.json"), \
+         patch.dict(os.environ, {"GEMINI_API_KEY": ""}):
+        assert C.resolve_api_key(C.AppSettings(api_key="")) == ("", "none")
+        robust = C.settings_from_dict({
+            "user_name": None,
+            "wake": {"cooldown_s": "nie-liczba", "unknown_future_field": True},
+            "safety": {"confirm_all": "tak"},
+        })
+        assert robust.user_name == ""
+        assert robust.wake.cooldown_s == 2.5
+        assert robust.safety.confirm_all is True
+        robust.api_key = "AIza" + "A" * 30
+        C.save_settings(robust)
+        normal = json.loads((tmp / "settings.json").read_text(encoding="utf-8"))
+        secret = json.loads((tmp / "settings.local.json").read_text(encoding="utf-8"))
+        assert "api_key" not in normal and secret["api_key"] == robust.api_key
+        assert C.load_settings().api_key == robust.api_key
+
     assert any("do widzenia" in p for p in C.GOODBYE_PATTERNS)
     assert any("tak" in p for p in C.CONSENT_PATTERNS)
 
@@ -389,11 +419,9 @@ def test_acoustics() -> None:
     from nixi.audio.wake import WakeWordDetector
 
     w = WakeWordDetector([r"\bhej\s+nixi\b", r"\bhej\s+niki\b", r"\bhej\s+nixy\b"])
-    model_dir = w._resolve_model_dir()
-    if not model_dir:
-        raise AssertionError("brak modelu VOSK do testu akustycznego")
 
-    # piper + polski głos
+    # Najpierw sprawdź opcjonalnego Pipera, aby bez niego nie pobierać
+    # niepotrzebnie około 40 MB modelu VOSK.
     voice_path = None
     try:
         from piper.download_voices import download_voice, list_voices
@@ -412,6 +440,10 @@ def test_acoustics() -> None:
     if not voice_path:
         print("    ⊘ pomijam test akustyczny — brak głosu Piper")
         return
+
+    model_dir = w._resolve_model_dir()
+    if not model_dir:
+        raise AssertionError("brak modelu VOSK do testu akustycznego")
 
     from piper import PiperVoice
 
@@ -459,8 +491,17 @@ def test_acoustics() -> None:
 # ------------------------------------------------------------ 11. QML smoke
 def qml_smoke(screenshot_path: str | None = None) -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    from PySide6.QtCore import QCoreApplication, Qt
-    from PySide6.QtGui import QGuiApplication, QImage
+    # Software backend pozwala uruchomić test w kontenerze bez GPU. Nie usuwa
+    # jednak systemowych bibliotek Qt (np. libGL); taki brak pomijamy tylko
+    # wtedy, gdy użytkownik nie żądał konkretnego zrzutu.
+    os.environ.setdefault("QT_QUICK_BACKEND", "software")
+    try:
+        from PySide6.QtCore import QCoreApplication, Qt
+        from PySide6.QtGui import QGuiApplication, QImage
+    except ImportError as exc:
+        if not screenshot_path and "libGL" in str(exc):
+            raise SkipTest("środowisko headless nie ma libGL — test UI uruchom na Windows lub z bibliotekami Qt") from exc
+        raise
     from PySide6.QtQuickControls2 import QQuickStyle
     from PySide6.QtQuick import QQuickView
 
@@ -507,6 +548,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--acoustics", action="store_true")
     parser.add_argument("--screenshot", metavar="PLIK.png")
+    parser.add_argument("--skip-ui", action="store_true", help="pomiń test QML (np. na serwerze bez Qt/GPU)")
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args(argv)
 
@@ -524,21 +566,21 @@ def main(argv: list[str] | None = None) -> int:
     check("sesja: zgody + pożegnanie (mock)", lambda: asyncio.run(_session_consent_test()))
     if args.acoustics:
         check("test akustyczny wake word (Piper→VOSK)", test_acoustics)
-    if args.screenshot or True:
-        try:
-            check("interfejs QML (offscreen)", lambda: qml_smoke(args.screenshot))
-        except Exception as e:  # noqa: BLE001
-            FAILURES.append("QML")
-            print(f"  ✗ QML: {e}")
-            import traceback
-
-            traceback.print_exc()
+    if args.skip_ui:
+        SKIPPED.append(("interfejs QML (offscreen)", "flaga --skip-ui"))
+        print("  ⊘ interfejs QML (offscreen): pominięto — flaga --skip-ui")
+    else:
+        check("interfejs QML (offscreen)", lambda: qml_smoke(args.screenshot))
 
     print()
+    if SKIPPED:
+        print("Pominięte testy:")
+        for name, reason in SKIPPED:
+            print(f"  - {name}: {reason}")
     if FAILURES:
         print(f"NIEPOWODZENIE: {len(FAILURES)} testów padło: {FAILURES}")
         return 1
-    print("Wszystkie testy przeszły. ✓")
+    print("Wszystkie uruchomione testy przeszły. ✓")
     return 0
 
 

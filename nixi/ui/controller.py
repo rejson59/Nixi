@@ -13,7 +13,7 @@ import time
 from dataclasses import asdict
 
 import numpy as np
-from PySide6.QtCore import QObject, QTimer, Signal, Property
+from PySide6.QtCore import QObject, QTimer, Signal, Slot, Property
 
 from .. import config as config_mod
 from .. import paths, version
@@ -115,9 +115,11 @@ class Controller(QObject):
     def state_name(self) -> str:
         return self._state.name.lower()
 
+    @Slot(result=bool)
     def isActive(self) -> bool:
         return is_active(self._state) and (self._session is not None or self._demo is not None)
 
+    @Slot()
     def dismissWelcome(self) -> None:
         try:
             self.memory.set_kv("first_run_done", "1")
@@ -143,6 +145,7 @@ class Controller(QObject):
         w = self.settings.wake
         self._wake = WakeWordDetector(
             w.phrases,
+            model_name=w.vosk_model or "vosk-model-small-pl-0.22",
             model_dir=w.vosk_model_dir or None,
             allow_bare_nixi=w.allow_bare_nixi,
             cooldown_s=w.cooldown_s,
@@ -275,6 +278,7 @@ class Controller(QObject):
         self._trans(Event.RESET)
 
     # ------------------------------------------------------- akcje z UI
+    @Slot()
     def toggleListen(self) -> None:
         """Skrót klawiszowy / klik: włącz nasłuch lub zakończ sesję."""
         if self._state == State.IDLE:
@@ -282,10 +286,12 @@ class Controller(QObject):
         elif is_active(self._state):
             self.endSessionNow()
 
+    @Slot()
     def activateNow(self) -> None:
         if self._state == State.IDLE:
             self._on_wake("(przycisk)")
 
+    @Slot()
     def endSessionNow(self) -> None:
         if self._session is not None:
             self._session.stop("user_request", farewell=True)
@@ -306,26 +312,20 @@ class Controller(QObject):
         self._trans(Event.RESET)
 
     # ---------------------------------------------------------- ustawienia
+    @Slot(result=str)
     def settingsJson(self) -> str:
         return json.dumps(asdict(self.settings), ensure_ascii=False)
 
+    @Slot(str, result=str)
     def saveSettings(self, json_str: str) -> str:
         try:
             data = json.loads(json_str or "{}")
         except json.JSONDecodeError as e:
             return f"Błąd JSON: {e}"
+        if not isinstance(data, dict):
+            return "Błąd JSON: ustawienia muszą być obiektem."
         try:
-            s = config_mod.AppSettings()
-            merged = config_mod._merge(asdict(s), data)
-            self.settings = config_mod.AppSettings(**{k: merged[k] for k in merged if hasattr(s, k)})
-            for section, cls in (
-                ("wake", config_mod.WakeSettings), ("session", config_mod.SessionSettings),
-                ("safety", config_mod.SafetySettings), ("vision", config_mod.VisionSettings),
-                ("memory", config_mod.MemorySettings), ("ui", config_mod.UISettings),
-                ("hotkeys", config_mod.HotkeySettings), ("system", config_mod.SystemSettings),
-            ):
-                if section in merged:
-                    setattr(self.settings, section, cls(**merged[section]))
+            self.settings = config_mod.settings_from_dict(data)
             config_mod.save_settings(self.settings)
             # ponowna konfiguracja detektora
             self._start_wake()
@@ -371,6 +371,7 @@ class Controller(QObject):
             pass
         return "Autostart wyłączony."
 
+    @Slot(str)
     def testApiKey(self, key: str) -> None:
         key = (key or "").strip()
         ok, msg = config_mod.validate_api_key(key)
@@ -397,6 +398,7 @@ class Controller(QObject):
         self.keyStatus.emit("Sprawdzam klucz…")
         threading.Thread(target=_test, name="nixi-keytest", daemon=True).start()
 
+    @Slot()
     def refreshVosk(self) -> None:
         self._start_wake()
 

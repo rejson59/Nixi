@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import os
 import re
 from dataclasses import asdict, dataclass, field, fields
+from pathlib import Path
 from typing import Any
 
 from . import paths
@@ -123,9 +125,29 @@ class AppSettings:
     system: SystemSettings = field(default_factory=SystemSettings)
 
 
+_LOG = logging.getLogger("nixi.config")
+
+
+# Sekcje zagnieżdżone są jawnie mapowane, aby ustawienia z przyszłych wersji
+# aplikacji nie powodowały awarii przy wczytywaniu starszego pliku JSON.
+_SECTION_TYPES = {
+    "wake": WakeSettings,
+    "session": SessionSettings,
+    "safety": SafetySettings,
+    "vision": VisionSettings,
+    "memory": MemorySettings,
+    "ui": UISettings,
+    "hotkeys": HotkeySettings,
+    "system": SystemSettings,
+}
+
+
 def _merge(base: dict, override: dict) -> dict:
+    """Scal słowniki bez modyfikowania argumentów wejściowych."""
     out = copy.deepcopy(base)
-    for k, v in (override or {}).items():
+    if not isinstance(override, dict):
+        return out
+    for k, v in override.items():
         if isinstance(v, dict) and isinstance(out.get(k), dict):
             out[k] = _merge(out[k], v)
         else:
@@ -133,43 +155,125 @@ def _merge(base: dict, override: dict) -> dict:
     return out
 
 
-def _load_json(path) -> dict:
+def _load_json(path: Path) -> dict:
+    """Wczytaj słownik JSON; uszkodzony plik nie blokuje uruchomienia aplikacji."""
     try:
         with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
+            data = json.load(f)
+        if isinstance(data, dict):
+            return data
+        _LOG.warning("Plik ustawień %s nie zawiera obiektu JSON — używam domyślnych.", path)
+    except FileNotFoundError:
         return {}
+    except (OSError, json.JSONDecodeError) as exc:
+        _LOG.warning("Nie można wczytać ustawień %s: %s — używam domyślnych.", path, exc)
+    return {}
+
+
+def _coerce_value(default: Any, value: Any) -> Any:
+    """Ograniczona normalizacja wartości z ręcznie edytowanego JSON-a."""
+    if value is None:
+        return default
+    if isinstance(default, bool):
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "tak", "on"}
+        return value if isinstance(value, bool) else bool(value)
+    if isinstance(default, int) and not isinstance(default, bool):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+    if isinstance(default, float):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+    if isinstance(default, str):
+        return str(value)
+    if isinstance(default, list):
+        return value if isinstance(value, list) else default
+    return value
+
+
+def _section_kwargs(cls, value: Any) -> dict:
+    """Zwróć znane pola sekcji i bezpiecznie obsłuż śmieci w JSON."""
+    if not isinstance(value, dict):
+        return {}
+    defaults = cls()
+    return {
+        f.name: _coerce_value(getattr(defaults, f.name), value[f.name])
+        for f in fields(cls)
+        if f.name in value
+    }
+
+
+def settings_from_dict(data: dict | None) -> AppSettings:
+    """Zbuduj ustawienia z JSON, zachowując wartości domyślne i kompatybilność.
+
+    Ta funkcja jest wspólna dla startu aplikacji i formularza QML. Dzięki temu
+    częściowo zapisany albo rozszerzony w przyszłości plik nie kończy programu
+    wyjątkiem ``TypeError``.
+    """
+    default_settings = AppSettings()
+    defaults = asdict(default_settings)
+    merged = _merge(defaults, data if isinstance(data, dict) else {})
+    top_fields = {f.name for f in fields(AppSettings)} - set(_SECTION_TYPES)
+    top = {
+        f.name: _coerce_value(getattr(default_settings, f.name), merged[f.name])
+        for f in fields(AppSettings)
+        if f.name in top_fields and f.name in merged
+    }
+    settings = AppSettings(**top)
+    for name, cls in _SECTION_TYPES.items():
+        setattr(settings, name, cls(**_section_kwargs(cls, merged.get(name))))
+    return settings
 
 
 def load_settings() -> AppSettings:
     data = _load_json(paths.settings_path())
-    # lokalne nadpisania (klucz API itd.) mają wyższy priorytet
+    # lokalne nadpisania (przede wszystkim klucz API) mają wyższy priorytet
     local = _load_json(paths.settings_local_path())
-    merged = _merge(asdict(AppSettings()), _merge(data, local))
-    s = AppSettings(**{k: merged[k] for k in fields(AppSettings) if k in merged})
-    s.wake = WakeSettings(**merged["wake"])
-    s.session = SessionSettings(**merged["session"])
-    s.safety = SafetySettings(**merged["safety"])
-    s.vision = VisionSettings(**merged["vision"])
-    s.memory = MemorySettings(**merged["memory"])
-    s.ui = UISettings(**merged["ui"])
-    s.hotkeys = HotkeySettings(**merged["hotkeys"])
-    s.system = SystemSettings(**merged["system"])
-    return s
+    return settings_from_dict(_merge(data, local))
+
+
+def _write_json_atomic(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+            f.write("\n")
+        os.replace(tmp, path)
+        # Na systemach uniksowych klucz pozostaje czytelny wyłącznie dla
+        # właściciela. Windows ignoruje chmod, ale nie szkodzi go wykonać.
+        if path.name == "settings.local.json":
+            try:
+                path.chmod(0o600)
+            except OSError:
+                pass
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def save_settings(settings: AppSettings, local: bool = False) -> None:
-    """Zapis do settings.json (local=True → settings.local.json, np. sam klucz API)."""
-    path = paths.settings_local_path() if local else paths.settings_path()
-    data = asdict(settings)
+    """Zapisz ustawienia bez umieszczania klucza API w zwykłym JSON-ie.
+
+    ``settings.json`` zawiera preferencje aplikacji, a ``settings.local.json``
+    wyłącznie sekret. Dla wygody zwykłe ``save_settings(settings)`` zapisuje
+    oba pliki, więc wywołujący nie może przypadkiem utrwalić klucza w głównym
+    pliku ustawień.
+    """
     if local:
-        # w pliku lokalnym trzymamy tylko rzeczy "sekretne"
-        data = {"api_key": settings.api_key}
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, path)
+        _write_json_atomic(paths.settings_local_path(), {"api_key": settings.api_key.strip()})
+        return
+
+    data = asdict(settings)
+    data.pop("api_key", None)
+    _write_json_atomic(paths.settings_path(), data)
+    save_settings(settings, local=True)
 
 
 _API_KEY_RE = re.compile(r"^AIza[0-9A-Za-z_\-]{20,}$")
@@ -188,13 +292,17 @@ def validate_api_key(key: str) -> tuple[bool, str]:
 
 
 def resolve_api_key(settings: AppSettings) -> tuple[str, str]:
-    """Zwraca (klucz, źródło). Kolejność: settings.local.json → GEMINI_API_KEY → settings.json."""
+    """Zwróć (klucz, źródło): local → GEMINI_API_KEY → ustawienia legacy."""
     local = _load_json(paths.settings_local_path())
-    if (local or {}).get("api_key", "").strip():
-        return local["api_key"].strip(), "local"
+    local_key = str((local or {}).get("api_key") or "").strip()
+    if local_key:
+        return local_key, "local"
     env = os.environ.get("GEMINI_API_KEY", "").strip()
     if env:
         return env, "env"
-    if settings.api_key.strip():
-        return settings.api_key.strip(), "settings"
+    # Wspieramy stare settings.json, aby aktualizacja nie wyłączyła istniejącej
+    # konfiguracji. Przy następnym zapisie klucz zostanie przeniesiony lokalnie.
+    legacy_key = str(settings.api_key or "").strip()
+    if legacy_key:
+        return legacy_key, "settings"
     return "", "none"

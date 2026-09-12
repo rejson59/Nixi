@@ -33,7 +33,7 @@ def set_volume(args: dict, ctx) -> dict:
         if level == "mute":
             vol.SetMute(1, None)
             return _ok("Dźwięk wyciszony.")
-        if level in ("unmute", "unmute"):
+        if level in ("unmute", "odcisz"):
             vol.SetMute(0, None)
             return _ok("Wyciszenie wyłączone.")
         pct = float(level)
