@@ -122,6 +122,9 @@ $env:GEMINI_API_KEY = "AIza..."
 python -m nixi --windowed --verbose
 ```
 
+W VS Code możesz też skopiować `.env.example` do `.env` i wpisać klucz; konfiguracja
+`Nixi: tryb okienkowy` w `.vscode/launch.json` odczyta ten plik. `.env` jest ignorowany przez Git.
+
 Bez klucza przetestujesz interfejs i przepływ demo. Po dodaniu klucza potrzebny jest internet;
 przy pierwszym uruchomieniu pobierany jest lokalny model VOSK do słowa „Hej Nixi”. Jeśli
 mikrofon/model nie jest jeszcze gotowy, użyj skrótu `Ctrl+Shift+Alt+N`.
