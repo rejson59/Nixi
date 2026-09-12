@@ -1,0 +1,26 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Budowa
+build/
+dist/
+*.egg-info/
+
+# Dane lokalne / testy
+nixi_data/
+*.zip
+*.wav
+*.mp3
+tests_output/
+
+# Sekrety — NIGDY nie commitować
+settings.local.json
+.env
+*.key
+
+# System
+.DS_Store
+Thumbs.db

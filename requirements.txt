@@ -1,0 +1,12 @@
+# Aplikacja Nixi — wymagania do uruchomienia (dewelopersko / build)
+PySide6-Essentials>=6.6
+numpy>=1.24
+sounddevice>=0.4.6
+vosk>=0.3.45
+websockets>=12.0
+mss>=9.0
+requests>=2.31
+Pillow>=10.0
+pynput>=1.7; platform_system == "Windows"
+pycaw>=20240210; platform_system == "Windows"
+pywin32>=306; platform_system == "Windows"
