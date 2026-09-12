@@ -41,22 +41,22 @@ pobierane są przy pierwszym użyciu, jeśli brak). Detekcja OWW działa równol
 
 ## Budowa .exe
 
-Budowa jest w pełni zautomatyzowana przez GitHub Actions (`.github/workflows/build-windows.yml`):
+Dwa sposoby:
 
-1. runner Windows + Python 3.12,
-2. instalacja zależności (`requirements.txt` + `requirements-build.txt`),
-3. **samotest z testem akustycznym**: synteza „Hej Nixi" (Piper, polski głos) → VOSK → asercja
-   wykrycia + test negatywny (brak fałszywych wybudzeń). Build pada, jeśli wake word nie działa,
-4. `pyinstaller Nixi.spec` → `dist/Nixi.exe` (onefile, windowed, ikona, metadane wersji),
-5. artefakt `Nixi-windows-exe`.
-
-Lokalnie (Windows z Pythonem 3.11+):
+**A. Lokalnie (Windows + Python 3.11/3.12):**
 
 ```powershell
-pip install -r requirements.txt -r requirements-build.txt
-python scripts/gen_icon.py
-pyinstaller --noconfirm --clean Nixi.spec
+powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1
 ```
+
+Skrypt: instaluje zależności → generuje ikonę → uruchamia **samotest z testem akustycznym**
+(synteza „Hej Nixi" Piper → VOSK → asercja wykrycia + test negatywny; build pada, jeśli
+wake word nie działa) → `pyinstaller Nixi.spec` → `dist/Nixi.exe` (onefile, windowed,
+ikona, metadane wersji).
+
+**B. GitHub Actions:** skopiuj `docs/build-windows.workflow.yml` do
+`.github/workflows/build-windows.yml` w swoim repozytorium i uruchom workflow
+*ręcznie* (`workflow_dispatch`) — artefakt `Nixi-windows-exe` w podsumowaniu biegu.
 
 ## Diagnostyka
 

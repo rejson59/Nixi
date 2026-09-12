@@ -52,7 +52,7 @@ Mikrofon ──► VAD ──► [IDLE] detektor „Hej Nixi” (VOSK, polski, o
 
 ## Instalacja (Windows)
 
-1. Pobierz **`Nixi.exe`** z zakładki [Releases](../../releases).
+1. Zbuduj **`Nixi.exe`** samodzielnie: `powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1` (lub skopiuj `docs/build-windows.workflow.yml` do `.github/workflows/build-windows.yml` i uruchom GitHub Actions — artefakt `Nixi-windows-exe`).
 2. Uruchom. (SmartScreen: „Więcej informacji" → „Uruchom mimo to" — plik nie jest podpisany certyfikatem.)
 3. Przy pierwszym uruchomieniu Nixi pobierze model rozpoznawania mowy (ok. 40 MB, tylko raz) — potrzebny do słowa „Hej Nixi".
 4. Kliknij **⚙** (prawy dolny róg) → wklej **klucz API** → „Testuj klucz" → „Zapisz".
