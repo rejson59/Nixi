@@ -1,0 +1,1 @@
+"""Podmoduł core Nixi."""

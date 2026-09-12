@@ -1,0 +1,4 @@
+# Wymagania do budowy .exe i testów akustycznych (CI)
+pyinstaller>=6.6
+piper-tts>=1.2
+piper-phonemize>=1.1

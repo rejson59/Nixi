@@ -1,0 +1,35 @@
+name: build-windows
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-build.txt
+
+      - name: Generate icon
+        run: python scripts/gen_icon.py
+
+      - name: Self-test (with acoustic wake-word test)
+        run: python -m nixi.selftest --acoustics
+
+      - name: Build Nixi.exe
+        run: pyinstaller --noconfirm --clean Nixi.spec
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nixi-windows-exe
+          path: dist/Nixi.exe
+          if-no-files-found: error
