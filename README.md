@@ -50,9 +50,22 @@ Mikrofon ──► VAD ──► [IDLE] detektor „Hej Nixi” (VOSK, polski, o
 - internet do rozmów z Gemini,
 - klucz Gemini API (darmowy z [aistudio.google.com/apikey](https://aistudio.google.com/apikey)) — bez klucza działa tryb demo.
 
+## Najprościej — bez wpisywania komend
+
+Na Windowsie możesz zrobić wszystko dwoma kliknięciami:
+
+1. Otwórz repozytorium w Eksploratorze plików.
+2. Uruchom **`URUCHOM_NIXI.bat`**.
+3. Przy pierwszym uruchomieniu skrypt sam utworzy środowisko i doinstaluje biblioteki.
+4. Nixi uruchomi się w trybie demo. Klucz API możesz dodać później w ustawieniach pod ikoną **⚙**.
+5. Gdy będziesz gotowy zbudować program, kliknij **`ZBUDUJ_NIXI_EXE.bat`**.
+
+Pierwsze uruchomienie może potrwać kilka minut, ponieważ Python pobiera biblioteki. Później
+`URUCHOM_NIXI.bat` uruchamia Nixi już bez dodatkowej konfiguracji.
+
 ## Instalacja (Windows)
 
-1. Zbuduj **`Nixi.exe`** samodzielnie: `powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1` (lub skopiuj `docs/build-windows.workflow.yml` do `.github/workflows/build-windows.yml` i uruchom GitHub Actions — artefakt `Nixi-windows-exe`).
+1. Zbuduj **`Nixi.exe`** samodzielnie: kliknij **`ZBUDUJ_NIXI_EXE.bat`** (alternatywnie użyj `powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1`).
 2. Uruchom. (SmartScreen: „Więcej informacji" → „Uruchom mimo to" — plik nie jest podpisany certyfikatem.)
 3. Przy pierwszym uruchomieniu Nixi pobierze model rozpoznawania mowy (ok. 40 MB, tylko raz) — potrzebny do słowa „Hej Nixi".
 4. Kliknij **⚙** (prawy dolny róg) → wklej **klucz API** → „Testuj klucz" → „Zapisz".

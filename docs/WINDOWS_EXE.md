@@ -41,7 +41,10 @@ pobierane są przy pierwszym użyciu, jeśli brak). Detekcja OWW działa równol
 
 ## Budowa .exe
 
-Dwa sposoby:
+Najprościej z katalogu projektu kliknąć **`ZBUDUJ_NIXI_EXE.bat`**. Skrypt sam przygotuje
+środowisko, zainstaluje PyInstaller, uruchomi samotesty i zapisze gotowy plik w `dist\Nixi.exe`.
+
+Dwa sposoby ręczne:
 
 **A. Lokalnie (Windows + Python 3.11/3.12):**
 
