@@ -12,18 +12,18 @@ Odpowiada za:
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import queue
 import re
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 import numpy as np
 
 from .. import config as config_mod
+from .. import version
 from . import instructions
 from .live import GeminiLiveClient, LiveCallbacks
 
@@ -32,18 +32,18 @@ _AUDIO_RATE_RE = re.compile(r"rate=(\d+)")
 
 @dataclass
 class SessionCallbacks:
-    on_user_text: Callable[[str], None] = None
-    on_assistant_text: Callable[[str], None] = None          # przyrosty
-    on_assistant_final: Callable[[str], None] = None         # po turn_complete
-    on_consent_required: Callable[[str], None] = None        # opis akcji
-    on_consent_resolved: Callable[[str], None] = None        # "wykonano"/"anulowano"
-    on_action: Callable[[str, bool, str], None] = None       # (nazwa, ok, opis)
-    on_interrupted: Callable[[], None] = None
-    on_model_level: Callable[[float], None] = None
-    on_started: Callable[[], None] = None
-    on_ended: Callable[[str], None] = None                   # powód zakończenia
-    on_error: Callable[[str], None] = None
-    on_reconnected: Callable[[], None] = None
+    on_user_text: Callable[[str], None] | None = None
+    on_assistant_text: Callable[[str], None] | None = None          # przyrosty
+    on_assistant_final: Callable[[str], None] | None = None         # po turn_complete
+    on_consent_required: Callable[[str], None] | None = None        # opis akcji
+    on_consent_resolved: Callable[[str], None] | None = None        # "wykonano"/"anulowano"
+    on_action: Callable[[str, bool, str], None] | None = None       # (nazwa, ok, opis)
+    on_interrupted: Callable[[], None] | None = None
+    on_model_level: Callable[[float], None] | None = None
+    on_started: Callable[[], None] | None = None
+    on_ended: Callable[[str], None] | None = None                   # powód zakończenia
+    on_error: Callable[[str], None] | None = None
+    on_reconnected: Callable[[], None] | None = None
 
 
 def describe_action(name: str, args: dict) -> str:
@@ -128,6 +128,20 @@ class ConversationSession:
                 self._audio_q.put_nowait(frames)
             except queue.Full:
                 pass
+
+    def send_video_threadsafe(self, jpeg: bytes) -> None:
+        """Wyślij klatkę JPEG do modelu z dowolnego wątku (np. narzędzie take_screenshot)."""
+        if not jpeg:
+            return
+        loop = self._loop
+        client = self._client
+        if loop is None or loop.is_closed() or client is None:
+            return
+        try:
+            future = asyncio.run_coroutine_threadsafe(client.send_video(jpeg), loop)
+            future.add_done_callback(lambda f: f.exception() if not f.cancelled() else None)
+        except Exception as e:  # noqa: BLE001
+            self.log.warning("Nie udało się wysłać zrzutu ekranu: %s", e)
 
     def stop(self, reason: str = "user_request", farewell: bool = False) -> None:
         """Zatrzymaj sesję z dowolnego wątku. Zamyka WS i wraca do czuwania."""
@@ -223,7 +237,7 @@ class ConversationSession:
         mems = self.memory.recall("", 6) if self.settings.memory.enabled else []
         dialog = self.memory.recent_dialog(4) if self.settings.memory.enabled else []
         context = instructions._context_block(user_name, mems, dialog)
-        return instructions.SYSTEM_TEMPLATE.format(context=context, version="0.1.0")
+        return instructions.SYSTEM_TEMPLATE.format(context=context, version=version.__version__)
 
     def _build_intro(self) -> str:
         user_name = self.settings.user_name or (self.memory.get_kv("user_name") or "")
@@ -376,7 +390,7 @@ class ConversationSession:
     async def _execute_pending(self) -> None:
         if self._pending is None:
             return
-        tool, args, call_id, name = self._pending
+        tool, args, call_id, _name = self._pending
         self._pending = None
         await self._execute_and_respond(tool, args, call_id, from_consent=True)
         if self.cb.on_consent_resolved:
@@ -391,9 +405,9 @@ class ConversationSession:
                 asyncio.to_thread(tool.execute, args, self.tools_ctx),
                 timeout=getattr(tool, "timeout", 20.0),
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             result = {"status": "error", "output": "Akcja trwała zbyt długo i została przerwana."}
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             self.log.exception("Błąd narzędzia %s", tool.name)
             result = {"status": "error", "output": str(e)}
         self._last_activity = time.monotonic()

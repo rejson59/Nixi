@@ -39,7 +39,7 @@ def check(name: str, fn) -> None:
 
 # ------------------------------------------------------------- 1. stany
 def test_state_machine() -> None:
-    from nixi.state import (Event, State, StateError, advance, is_active)
+    from nixi.state import Event, State, StateError, advance, is_active
 
     assert advance(State.BOOT, Event.RESET) == State.IDLE
     assert advance(State.IDLE, Event.WAKE_DETECTED) == State.WAKING
@@ -72,11 +72,21 @@ def test_config() -> None:
     assert merged["safety"]["confirm_all"] is True and merged["model"] == "test-model"
     ok, _ = C.validate_api_key("AIzaSy" + "A" * 27)
     assert ok
-    ok, msg = C.validate_api_key("AQ.Ab8RN6im" + "x" * 42)
+    ok, _msg = C.validate_api_key("AQ.Ab8RN6im" + "x" * 42)
     assert not ok, "token OAuth nie powinien przejść walidacji klucza"
     assert C.resolve_api_key(C.AppSettings(api_key="")) == ("", "none")
     assert any("do widzenia" in p for p in C.GOODBYE_PATTERNS)
     assert any("tak" in p for p in C.CONSENT_PATTERNS)
+
+    # from_dict: braki, nieznane klucze i stare pliki ustawień nie mogą wywalić startu
+    s2 = C.from_dict({"model": "x", "wake": {"cooldown_s": 3.5, "nieistniejace_pole": 1},
+                      "smieci": True})
+    assert s2.model == "x" and s2.wake.cooldown_s == 3.5
+    assert s2.session.silence_timeout_s == C.SessionSettings().silence_timeout_s
+    assert isinstance(s2.hotkeys, C.HotkeySettings)
+    assert C.from_dict({}) == C.AppSettings()
+    # zapis → odczyt (round-trip po asdict)
+    assert C.from_dict(asdict(s2)) == s2
 
 
 # --------------------------------------------------------------- 3. pamięć
@@ -276,8 +286,8 @@ async def _live_protocol_test() -> None:
         await client.send_text("cześć")
         try:
             await asyncio.wait_for(client.wait(), 15)
-        except asyncio.TimeoutError:
-            raise AssertionError("mock nie zakończył sesji")
+        except TimeoutError as e:
+            raise AssertionError("mock nie zakończył sesji") from e
 
     assert "ready" in received, received
     assert any(r.startswith("audio:audio/pcm;rate=24000:") for r in received), received
@@ -384,6 +394,57 @@ def test_synth() -> None:
 
 
 # --------------------------------------------------- 10. test akustyczny
+PIPER_PL_CANDIDATES = ("pl_PL-darkman-medium", "pl_PL-gosia-medium")
+
+
+def _download_piper_voice(data_dir: Path) -> Path | None:
+    """Pobierz polski głos Piper. Zwraca ścieżkę .onnx albo None (brak sieci/pakietu)."""
+    try:
+        from piper.download_voices import download_voice
+    except Exception as e:  # noqa: BLE001
+        print(f"    (piper niedostępny: {e})")
+        return None
+    last_err: Exception | None = None
+    for name in PIPER_PL_CANDIDATES:
+        try:
+            # UWAGA: piper.download_voices.list_voices() tylko DRUKUJE listę i zwraca None,
+            # więc nie da się po niej iterować — pobieramy znane nazwy głosów wprost.
+            download_voice(name, data_dir)
+            onnx = data_dir / f"{name}.onnx"
+            if onnx.exists() and (data_dir / f"{name}.onnx.json").exists():
+                return onnx
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+    print(f"    (nie udało się pobrać głosu Piper: {last_err})")
+    return None
+
+
+def _piper_wav_16k(voice, text: str, out_path: Path) -> None:
+    """Zsyntetyzuj tekst i zapisz jako WAV 16 kHz mono (format wymagany przez VOSK)."""
+    import wave
+
+    chunks = list(voice.synthesize(text))
+    if not chunks:
+        raise AssertionError(f"Piper nie zsyntetyzował audio dla: {text!r}")
+    src_rate = int(chunks[0].sample_rate)
+    audio = np.concatenate([
+        np.frombuffer(c.audio_int16_bytes, dtype=np.int16).astype(np.float32) for c in chunks
+    ])
+    if src_rate != 16000:
+        n_out = max(1, round(audio.size * 16000 / src_rate))
+        audio = np.interp(
+            np.linspace(0.0, 1.0, n_out, endpoint=False),
+            np.linspace(0.0, 1.0, audio.size, endpoint=False),
+            audio,
+        )
+    pcm = np.clip(audio, -32768, 32767).astype(np.int16)
+    with wave.open(str(out_path), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(16000)
+        wf.writeframes(pcm.tobytes())
+
+
 def test_acoustics() -> None:
     """Realny test: Piper (polski głos) → „Hej Nixi” → VOSK → detekcja."""
     from nixi.audio.wake import WakeWordDetector
@@ -393,22 +454,7 @@ def test_acoustics() -> None:
     if not model_dir:
         raise AssertionError("brak modelu VOSK do testu akustycznego")
 
-    # piper + polski głos
-    voice_path = None
-    try:
-        from piper.download_voices import download_voice, list_voices
-
-        data_dir = Path(tempfile.mkdtemp())
-        pl_voices = [v for v in list_voices() if v.lower().startswith("pl_")]
-        candidates = ["pl_PL-darkman-medium", "pl_PL-gosia-medium"]
-        chosen = next((c for c in candidates if c in pl_voices), None) or (pl_voices[0] if pl_voices else None)
-        if chosen:
-            download_voice(chosen, data_dir)
-            voice_path = data_dir / f"{chosen}.onnx"
-            if not voice_path.exists():
-                voice_path = None
-    except Exception as e:  # noqa: BLE001
-        print(f"    (piper niedostępny: {e})")
+    voice_path = _download_piper_voice(Path(tempfile.mkdtemp()))
     if not voice_path:
         print("    ⊘ pomijam test akustyczny — brak głosu Piper")
         return
@@ -417,56 +463,150 @@ def test_acoustics() -> None:
 
     voice = PiperVoice.load(voice_path)
 
-    def synth(text: str) -> bytes:
-        import io
-        import wave
+    tmp = Path(tempfile.mkdtemp())
+    cases = {
+        "p1": ("Hej Nixi.", True),
+        "p2": ("Hej Nixi, otwórz notatnik.", True),
+        "n1": ("Dzisiaj jest ładna pogoda.", False),
+        "n2": ("Cześć kolego, co słychać?", False),
+    }
+    files: dict[str, Path] = {}
+    for key, (text, _expect) in cases.items():
+        path = tmp / f"{key}.wav"
+        _piper_wav_16k(voice, text, path)
+        files[key] = path
 
-        buf = io.BytesIO()
-        with wave.open(buf, "wb") as wf:
-            wf.setnchannels(1)
-            wf.setsampwidth(2)
-            wf.setframerate(16000)
-            for chunk in voice.synthesize_stream_raw(text):
-                wf.writeframes(chunk)
-        return buf.getvalue()
+    results = {key: w.detect_file(str(path)) for key, path in files.items()}
+    print("    wyniki: " + ", ".join(f"{k}={v!r}" for k, v in results.items()))
+
+    for key, (text, expect_hit) in cases.items():
+        got = results[key]
+        if expect_hit:
+            assert got is not None, f"nie wykryto „Hej Nixi” w: {text!r}"
+        else:
+            assert got is None, f"fałszywe wykrycie w: {text!r} → {got!r}"
+
+
+# ----------------------------------------------- 10a. spójność metadanych
+def test_packaging_metadata() -> None:
+    """Wersja w version_info.txt (metadane .exe) musi zgadzać się z nixi/version.py."""
+    from nixi import version
+
+    root = Path(__file__).resolve().parent.parent
+    info = (root / "version_info.txt").read_text(encoding="utf-8")
+    v = version.__version__
+    assert f"u'FileVersion', u'{v}'" in info, f"FileVersion != {v} w version_info.txt"
+    assert f"u'ProductVersion', u'{v}'" in info, f"ProductVersion != {v} w version_info.txt"
+    parts = (*(int(x) for x in v.split(".")), 0)
+    compact = info.replace(" ", "")
+    expected = "(" + ",".join(str(x) for x in parts) + ")"
+    assert f"filevers={expected}" in compact, f"filevers != {expected}"
+    assert f"prodvers={expected}" in compact, f"prodvers != {expected}"
+
+    # requirements-build.txt nie może wskrzesić pakietu niedostępnego na PyPI
+    build_reqs = (root / "requirements-build.txt").read_text(encoding="utf-8")
+    pkgs = [
+        line.split("#", 1)[0].strip()
+        for line in build_reqs.splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+    assert not any(p.startswith("piper-phonemize") for p in pkgs), (
+        "piper-phonemize nie istnieje na PyPI dla Pythona 3.12 — psuje instalację w CI"
+    )
+    assert any(p.startswith("piper-tts") for p in pkgs), "brak piper-tts (test akustyczny)"
+
+
+# ------------------------------------------- 10b. mostek QML (sloty, resample)
+def test_controller_slots() -> None:
+    """Metody wołane z QML muszą być zarejestrowane jako sloty Qt, inaczej QML ich nie widzi."""
+    from PySide6.QtCore import QObject  # noqa: F401  (inicjalizacja metaobiektów)
+
+    from nixi.ui.controller import Controller
+
+    meta = Controller.staticMetaObject
+    registered = {
+        meta.method(i).methodSignature().data().decode()
+        for i in range(meta.methodOffset(), meta.methodCount())
+    }
+    for sig in ("isActive()", "dismissWelcome()", "toggleListen()", "endSessionNow()",
+                "settingsJson()", "saveSettings(QString)", "testApiKey(QString)",
+                "refreshVosk()"):
+        assert sig in registered, f"brak slotu QML: {sig} (mam: {sorted(registered)})"
+    assert meta.indexOfProperty("uiShaderEnabled") >= 0, "brak właściwości uiShaderEnabled"
+
+
+def test_settings_roundtrip() -> None:
+    """Zapis ustawień z UI: walidacja regexów i klucz API tylko w settings.local.json."""
+    import json as _json
+
+    from nixi import config as C
+    from nixi import paths
+    from nixi.core.memory import MemoryStore
+    from nixi.ui.controller import Controller, _split_regexes
+
+    good, bad = _split_regexes([r"\bhej\s+nixi\b", "[niedomknieta"])
+    assert good == [r"\bhej\s+nixi\b"], good
+    assert len(bad) == 1, bad
 
     tmp = Path(tempfile.mkdtemp())
-    pos1 = tmp / "p1.wav"
-    pos1.write_bytes(synth("Hej Nixi."))
-    pos2 = tmp / "p2.wav"
-    pos2.write_bytes(synth("Hej Nixi, otwórz notatnik."))
-    neg1 = tmp / "n1.wav"
-    neg1.write_bytes(synth("Dzisiaj jest ładna pogoda."))
-    neg2 = tmp / "n2.wav"
-    neg2.write_bytes(synth("Cześć kolego, co słychać?"))
-
-    w.start()
+    old_data_dir = paths.data_dir
+    paths.data_dir = lambda: tmp  # type: ignore[assignment]
     try:
-        time.sleep(0.5)
-        r1 = w.detect_file(str(pos1))
-        r2 = w.detect_file(str(pos2))
-        n1 = w.detect_file(str(neg1))
-        n2 = w.detect_file(str(neg2))
-    finally:
-        w.stop()
+        ctrl = Controller(settings=C.AppSettings(), memory=MemoryStore(tmp / "m.db"))
+        try:
+            payload = _json.dumps({"api_key": "AIzaSy" + "A" * 27, "user_name": "Jan",
+                                   "wake": {"cooldown_s": 3.5}})
+            msg = ctrl.saveSettings(payload)
+            assert "Zapisano" in msg, msg
+            public = _json.loads((tmp / "settings.json").read_text(encoding="utf-8"))
+            local = _json.loads((tmp / "settings.local.json").read_text(encoding="utf-8"))
+            assert public["api_key"] == "", "klucz API nie może trafić do settings.json!"
+            assert public["user_name"] == "Jan" and public["wake"]["cooldown_s"] == 3.5
+            assert local["api_key"].startswith("AIzaSy")
 
-    print(f"    pozytywne: {r1!r} / {r2!r}; negatywne: {n1!r} / {n2!r}")
-    assert r1 is not None, "nie wykryto „Hej Nixi” (1)"
-    assert r2 is not None, "nie wykryto „Hej Nixi” (2)"
-    assert n1 is None and n2 is None, "fałszywe wykrycie!"
+            bad = ctrl.saveSettings(_json.dumps({"wake": {"phrases": ["[zly regex"]}}))
+            assert "nieprawidłowe wyrażenie" in bad, bad
+            assert "Błąd JSON" in ctrl.saveSettings("{nie-json}")
+            assert _json.loads(ctrl.settingsJson())["user_name"] == "Jan"
+        finally:
+            ctrl.shutdown()
+    finally:
+        paths.data_dir = old_data_dir  # type: ignore[assignment]
+
+
+def test_audio_resample() -> None:
+    from nixi.audio.player import resample
+
+    x = np.sin(np.linspace(0, 8 * np.pi, 2400, dtype=np.float32))
+    up = resample(x, 24000, 48000)
+    down = resample(x, 24000, 16000)
+    assert up.size == 4800 and down.size == 1600
+    assert up.dtype == np.float32 and down.dtype == np.float32
+    assert resample(x, 16000, 16000) is x
+    assert resample(np.zeros(0, dtype=np.float32), 16000, 24000).size == 0
+    assert float(np.max(np.abs(down))) <= 1.01
 
 
 # ------------------------------------------------------------ 11. QML smoke
 def qml_smoke(screenshot_path: str | None = None) -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    from PySide6.QtCore import QCoreApplication, Qt
-    from PySide6.QtGui import QGuiApplication, QImage
-    from PySide6.QtQuickControls2 import QQuickStyle
+    from PySide6.QtCore import QCoreApplication, Qt, QUrl
+
+    try:
+        from PySide6.QtGui import QGuiApplication, QImage
+    except ImportError as e:
+        # Na Windows (docelowa platforma) biblioteki Qt są zawsze w kole PySide6;
+        # na gołym Linuksie CI może brakować libGL — wtedy pomijamy zamiast wywalać build.
+        if sys.platform == "win32":
+            raise
+        print(f"    ⊘ pomijam test QML — brak bibliotek systemowych Qt ({e})")
+        return
     from PySide6.QtQuick import QQuickView
+    from PySide6.QtQuickControls2 import QQuickStyle
 
     QCoreApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
     QQuickStyle.setStyle("Material")
-    app = QGuiApplication(["-platform", "offscreen"])
+    app = QGuiApplication.instance() or QGuiApplication(["-platform", "offscreen"])
 
     from nixi import paths
     from nixi.ui.controller import Controller
@@ -477,8 +617,9 @@ def qml_smoke(screenshot_path: str | None = None) -> None:
     view.setResizeMode(QQuickView.SizeRootObjectToView)
     view.engine().addImportPath(str(ui_dir))
     view.engine().rootContext().setContextProperty("bridge", controller)
-    view.setSource("file://" + str(ui_dir / "main.qml"))
-    assert view.status() == QQuickView.Ready, view.errors()
+    # QUrl.fromLocalFile — "file://" + ścieżka Windows (C:\...) daje nieprawidłowy URL
+    view.setSource(QUrl.fromLocalFile(str(ui_dir / "main.qml")))
+    assert view.status() == QQuickView.Ready, [e.toString() for e in view.errors()]
     view.resize(1280, 800)
     view.show()
     for _ in range(10):
@@ -522,17 +663,13 @@ def main(argv: list[str] | None = None) -> int:
     check("synteza dźwięków", test_synth)
     check("protokół Live API (mock)", lambda: asyncio.run(_live_protocol_test()))
     check("sesja: zgody + pożegnanie (mock)", lambda: asyncio.run(_session_consent_test()))
+    check("metadane pakietu", test_packaging_metadata)
+    check("mostek QML (sloty)", test_controller_slots)
+    check("zapis ustawień (UI)", test_settings_roundtrip)
+    check("resampling audio", test_audio_resample)
     if args.acoustics:
         check("test akustyczny wake word (Piper→VOSK)", test_acoustics)
-    if args.screenshot or True:
-        try:
-            check("interfejs QML (offscreen)", lambda: qml_smoke(args.screenshot))
-        except Exception as e:  # noqa: BLE001
-            FAILURES.append("QML")
-            print(f"  ✗ QML: {e}")
-            import traceback
-
-            traceback.print_exc()
+    check("interfejs QML (offscreen)", lambda: qml_smoke(args.screenshot))
 
     print()
     if FAILURES:

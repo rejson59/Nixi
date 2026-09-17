@@ -83,8 +83,10 @@ def open_app(args: dict, ctx) -> dict:
         if lnk:
             os.startfile(lnk)  # type: ignore[attr-defined]
             return _ok(f"Otwarto: {os.path.basename(lnk)}")
-        # ostatnia deska ratunku — Windows rozwiąże nazwę przez App Paths
-        subprocess.Popen(f'start "" "{name}"', shell=True)
+        # ostatnia deska ratunku — Windows rozwiąże nazwę przez App Paths.
+        # Bez shell=True: nazwa aplikacji pochodzi od modelu, więc nie może trafić
+        # do interpretera poleceń (ryzyko wstrzyknięcia komendy).
+        subprocess.Popen(["cmd", "/c", "start", "", name], shell=False)
         return _ok(f"Próbuję otworzyć: {name}")
     except Exception as e:  # noqa: BLE001
         return _err(f"Nie udało się otworzyć „{name}”: {e}")
@@ -97,7 +99,8 @@ def close_app(args: dict, ctx) -> dict:
     if not name:
         return _err("Podaj nazwę aplikacji.")
     try:
-        out = subprocess.run(["tasklist", "/FO", "CSV", "/NH"], capture_output=True, text=True, timeout=10)
+        out = subprocess.run(["tasklist", "/FO", "CSV", "/NH"],
+                             capture_output=True, text=True, timeout=10, check=False)
         procs: dict[str, str] = {}
         for line in out.stdout.splitlines():
             parts = [p.strip('"') for p in line.split('","')]
@@ -108,7 +111,8 @@ def close_app(args: dict, ctx) -> dict:
         if not matches:
             return _err(f"Nie znaleziono uruchomionego procesu „{name}”.")
         exe = matches[0]
-        r = subprocess.run(["taskkill", "/IM", exe], capture_output=True, text=True, timeout=15)
+        r = subprocess.run(["taskkill", "/IM", exe],
+                           capture_output=True, text=True, timeout=15, check=False)
         if r.returncode == 0:
             return _ok(f"Zamknięto aplikację: {exe}")
         return _err(f"Nie udało się zamknąć {exe}: {r.stderr.strip()}")

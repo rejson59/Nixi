@@ -142,16 +142,18 @@ class WakeWordDetector:
                     r.raise_for_status()
                     total = int(r.headers.get("Content-Length") or 0)
                     done = 0
-                    tmp = target.with_suffix(".zip.part")
+                    zip_path = target.parent / f"{target.name}.zip"
+                    tmp = target.parent / f"{target.name}.zip.part"
                     with open(tmp, "wb") as f:
                         for chunk in r.iter_content(chunk_size=1 << 16):
                             f.write(chunk)
                             done += len(chunk)
                             if total and self._on_status:
                                 self._on_status(f"Pobieram model mowy… {100 * done // total}%")
-                    tmp.replace(target.with_suffix(".zip"))
-                with zipfile.ZipFile(target.with_suffix(".zip")) as z:
+                    tmp.replace(zip_path)
+                with zipfile.ZipFile(zip_path) as z:
                     z.extractall(paths.models_dir())
+                zip_path.unlink(missing_ok=True)
                 if (target / "am").is_dir():
                     self.log.info("Model VOSK gotowy: %s", target)
                     return str(target)
@@ -177,8 +179,8 @@ class WakeWordDetector:
             else:
                 if self._on_status:
                     self._on_status("Wybudzanie głosowe wyłączone (brak modelu). Skrót klawiszowy nadal działa.")
-        except Exception as e:  # noqa: BLE001
-            self.log.exception("Nie udało się załadować modelu VOSK: %s", e)
+        except Exception as e:
+            self.log.exception("Nie udało się załadować modelu VOSK")
             if self._on_status:
                 self._on_status(f"Błąd modelu mowy: {e}")
             return

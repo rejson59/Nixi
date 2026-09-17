@@ -6,9 +6,7 @@ monitorach). Na innych systemach narzędzia zwracają czytelny błąd.
 from __future__ import annotations
 
 import ctypes
-import ctypes.wintypes as wt
 import re
-import subprocess
 import sys
 import time
 
@@ -147,14 +145,10 @@ def press_keys(args: dict, ctx) -> dict:
         keys = [k.strip().lower() for k in re.split(r"[+,]", combo) if k.strip()]
         vks: list[int] = []
         for k in keys:
-            if k in ("shift", "ctrl", "control", "alt", "menu", "win", "lwin", "rwin"):
-                vks.append(_VK_MAP.get(k, 0))
-            elif len(k) == 1 and k in _VK_MAP:
-                vks.append(_VK_MAP[k])
-            elif k in _VK_MAP:
-                vks.append(_VK_MAP[k])
-            else:
+            vk = _VK_MAP.get(k)
+            if not vk:
                 return _err(f"Nieznany klawisz: {k}")
+            vks.append(vk)
         if not vks:
             return _err("Nie rozpoznano klawiszy.")
         for vk in vks:

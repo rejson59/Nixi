@@ -3,11 +3,9 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import sys
 
-from . import paths
-from . import version
+from . import paths, version
 from .logging_setup import setup as setup_logging
 
 
@@ -25,15 +23,32 @@ def _single_instance_guard(log: logging.Logger) -> object | None:
         import fcntl
 
         lock_path = paths.data_dir() / "nixi.lock"
-        fh = open(lock_path, "w")
-        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fh = open(lock_path, "w")  # noqa: SIM115 — celowo trzymamy uchwyt do końca procesu
+        try:
+            fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            fh.close()
+            log.warning("Nixi już działa — wychodzę.")
+            return None
         return fh
     except Exception:  # noqa: BLE001
         log.warning("Nie udało się zablokować instancji — kontynuuję.")
         return object()
 
 
-def _make_icon() -> "QIcon":
+def _release_guard(guard: object | None) -> None:
+    """Zwolnij blokadę pojedynczej instancji (plik/mutex)."""
+    if guard is None:
+        return
+    close = getattr(guard, "close", None)
+    if callable(close):
+        try:
+            close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _make_icon():
     from PySide6.QtCore import QPointF, QRectF, Qt
     from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap, QRadialGradient
 
@@ -67,9 +82,11 @@ def _setup_tray(app, view, controller, log: logging.Logger):
         view.showFullScreen()
 
     def _open_settings():
+        from PySide6.QtCore import QObject
+
         root = view.rootObject()
         if root is not None:
-            loader = root.findChild(type(root), "settingsLoader")
+            loader = root.findChild(QObject, "settingsLoader")
             if loader is not None:
                 loader.setProperty("active", True)
 
@@ -189,16 +206,16 @@ def main(argv: list[str] | None = None) -> int:
         except Exception:  # noqa: BLE001
             pass
 
+    guard = None
     if not args.no_single:
         guard = _single_instance_guard(log)
         if guard is None:
             return 0
 
-    from PySide6.QtCore import QCoreApplication, Qt
+    from PySide6.QtCore import QCoreApplication, Qt, QUrl
     from PySide6.QtGui import QGuiApplication
     from PySide6.QtQuick import QQuickView
     from PySide6.QtQuickControls2 import QQuickStyle
-    from PySide6.QtCore import QUrl
 
     QCoreApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
     QQuickStyle.setStyle("Material")
@@ -252,6 +269,7 @@ def main(argv: list[str] | None = None) -> int:
         except Exception:  # noqa: BLE001
             pass
         controller.shutdown()
+        _release_guard(guard)
     return rc
 
 

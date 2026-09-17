@@ -6,14 +6,15 @@ przez sygnały Qt (bezpieczne wątkowo).
 """
 from __future__ import annotations
 
+import copy
 import json
 import logging
+import re
 import threading
-import time
 from dataclasses import asdict
 
 import numpy as np
-from PySide6.QtCore import QObject, QTimer, Signal, Property
+from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
 
 from .. import config as config_mod
 from .. import paths, version
@@ -25,6 +26,28 @@ from ..core.memory import MemoryStore
 from ..core.session import ConversationSession, SessionCallbacks
 from ..state import Event, State, StateError, advance, is_active, label
 from ..tools.registry import ToolContext
+
+
+def _split_regexes(patterns: list[str]) -> tuple[list[str], list[str]]:
+    """Podziel frazy wybudzające na (poprawne, opisy błędnych).
+
+    Bez tej walidacji zły wzorzec z ustawień wywracał wątek detektora przy starcie.
+    """
+    good: list[str] = []
+    bad: list[str] = []
+    for pattern in patterns or []:
+        try:
+            re.compile(pattern)
+        except re.error as e:
+            bad.append(f"„{pattern}”: {e}")
+        else:
+            good.append(pattern)
+    return good, bad
+
+
+def _invalid_regexes(patterns: list[str]) -> list[str]:
+    """Opisy fraz, które nie są poprawnymi wyrażeniami regularnymi (pusta lista = OK)."""
+    return _split_regexes(patterns)[1]
 
 
 class Controller(QObject):
@@ -115,15 +138,18 @@ class Controller(QObject):
     def state_name(self) -> str:
         return self._state.name.lower()
 
+    @Slot(result=bool)
     def isActive(self) -> bool:
         return is_active(self._state) and (self._session is not None or self._demo is not None)
 
+    @Slot()
     def dismissWelcome(self) -> None:
         try:
             self.memory.set_kv("first_run_done", "1")
         except Exception:  # noqa: BLE001
             pass
 
+    @Slot(result=bool)
     def uiShader(self) -> bool:
         return bool(self.settings.ui.shader)
 
@@ -140,15 +166,24 @@ class Controller(QObject):
     def _start_wake(self) -> None:
         if self._wake is not None:
             self._wake.stop()
+            self._wake = None
         w = self.settings.wake
+        if not w.enabled:
+            # Bez tego detektor startował (i pobierał model ~40 MB) mimo wyłączonego
+            # wybudzania głosowego w ustawieniach.
+            self.voskStatus.emit("Wybudzanie głosowe wyłączone w ustawieniach — użyj skrótu klawiszowego.")
+            return
+        phrases, bad = _split_regexes(w.phrases)
+        if bad:
+            self.log.warning("Pomijam nieprawidłowe frazy wybudzające: %s", "; ".join(bad))
         self._wake = WakeWordDetector(
-            w.phrases,
+            phrases,
             model_dir=w.vosk_model_dir or None,
             allow_bare_nixi=w.allow_bare_nixi,
             cooldown_s=w.cooldown_s,
             on_wake=self._on_wake,
-            on_status=lambda s: self.voskStatus.emit(s),
-            on_model_ready=lambda d: self.voskStatus.emit("Nasłuch głosowy gotowy — powiedz „Hej Nixi”."),
+            on_status=self.voskStatus.emit,
+            on_model_ready=lambda _d: self.voskStatus.emit("Nasłuch głosowy gotowy — powiedz „Hej Nixi”."),
             logger=self.log,
         )
         self._wake.start()
@@ -206,7 +241,7 @@ class Controller(QObject):
         self._launch_session()
 
     def _launch_session(self) -> None:
-        api_key, src = config_mod.resolve_api_key(self.settings)
+        api_key, _src = config_mod.resolve_api_key(self.settings)
         if not api_key:
             self.demoMode.emit(True)
             self._trans(Event.DEMO_STARTED)
@@ -275,6 +310,7 @@ class Controller(QObject):
         self._trans(Event.RESET)
 
     # ------------------------------------------------------- akcje z UI
+    @Slot()
     def toggleListen(self) -> None:
         """Skrót klawiszowy / klik: włącz nasłuch lub zakończ sesję."""
         if self._state == State.IDLE:
@@ -282,10 +318,12 @@ class Controller(QObject):
         elif is_active(self._state):
             self.endSessionNow()
 
+    @Slot()
     def activateNow(self) -> None:
         if self._state == State.IDLE:
             self._on_wake("(przycisk)")
 
+    @Slot()
     def endSessionNow(self) -> None:
         if self._session is not None:
             self._session.stop("user_request", farewell=True)
@@ -306,34 +344,45 @@ class Controller(QObject):
         self._trans(Event.RESET)
 
     # ---------------------------------------------------------- ustawienia
+    @Slot(result=str)
     def settingsJson(self) -> str:
         return json.dumps(asdict(self.settings), ensure_ascii=False)
 
+    @Slot(str, result=str)
     def saveSettings(self, json_str: str) -> str:
         try:
             data = json.loads(json_str or "{}")
         except json.JSONDecodeError as e:
             return f"Błąd JSON: {e}"
+        if not isinstance(data, dict):
+            return "Błąd zapisu: oczekiwano obiektu JSON."
         try:
-            s = config_mod.AppSettings()
-            merged = config_mod._merge(asdict(s), data)
-            self.settings = config_mod.AppSettings(**{k: merged[k] for k in merged if hasattr(s, k)})
-            for section, cls in (
-                ("wake", config_mod.WakeSettings), ("session", config_mod.SessionSettings),
-                ("safety", config_mod.SafetySettings), ("vision", config_mod.VisionSettings),
-                ("memory", config_mod.MemorySettings), ("ui", config_mod.UISettings),
-                ("hotkeys", config_mod.HotkeySettings), ("system", config_mod.SystemSettings),
-            ):
-                if section in merged:
-                    setattr(self.settings, section, cls(**merged[section]))
-            config_mod.save_settings(self.settings)
+            new_settings = config_mod.from_dict(data)
+        except (TypeError, ValueError) as e:
+            self.log.warning("Nieprawidłowe ustawienia z UI: %s", e)
+            return f"Błąd zapisu: nieprawidłowe ustawienia ({e})"
+
+        bad_phrases = _invalid_regexes(new_settings.wake.phrases)
+        if bad_phrases:
+            return "Błąd zapisu: nieprawidłowe wyrażenie regularne — " + "; ".join(bad_phrases)
+
+        try:
+            self.settings = new_settings
+            self.tool_ctx.settings = new_settings
+            # Klucz API trafia wyłącznie do settings.local.json (nigdy do settings.json)
+            api_key = new_settings.api_key.strip()
+            public = copy.deepcopy(new_settings)
+            public.api_key = ""
+            config_mod.save_settings(public)
+            if api_key:
+                config_mod.save_settings(new_settings, local=True)
             # ponowna konfiguracja detektora
             self._start_wake()
             self._apply_autostart()
             self._notify_ui_settings()
             self.settingsChanged.emit()
             return "Zapisano ustawienia."
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             self.log.exception("Błąd zapisu ustawień")
             return f"Błąd zapisu: {e}"
 
@@ -371,6 +420,7 @@ class Controller(QObject):
             pass
         return "Autostart wyłączony."
 
+    @Slot(str)
     def testApiKey(self, key: str) -> None:
         key = (key or "").strip()
         ok, msg = config_mod.validate_api_key(key)
@@ -397,6 +447,7 @@ class Controller(QObject):
         self.keyStatus.emit("Sprawdzam klucz…")
         threading.Thread(target=_test, name="nixi-keytest", daemon=True).start()
 
+    @Slot()
     def refreshVosk(self) -> None:
         self._start_wake()
 

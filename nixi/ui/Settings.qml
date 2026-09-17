@@ -1,6 +1,7 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
+import QtQuick.Window 2.15
 
 Window {
     id: win
@@ -36,16 +37,16 @@ Window {
         wakeCk.checked = !!(s.wake && s.wake.enabled);
         phrasesF.text = ((s.wake && s.wake.phrases) || []).join("\n");
         bareCk.checked = !!(s.wake && s.wake.allow_bare_nixi);
-        cooldownSb.value = (s.wake && s.wake.cooldown_s) || 2.5;
-        silenceSb.value = (s.session && s.session.silence_timeout_s) || 45;
-        maxDurSb.value = (s.session && s.session.max_duration_s) || 1200;
+        cooldownSb.value = Math.round(((s.wake && s.wake.cooldown_s) || 2.5) * 10);
+        silenceSb.value = Math.round((s.session && s.session.silence_timeout_s) || 45);
+        maxDurSb.value = Math.round((s.session && s.session.max_duration_s) || 1200);
         riskyCk.checked = !!(s.safety && s.safety.confirm_risky);
         allCk.checked = !!(s.safety && s.safety.confirm_all);
         typingCk.checked = !!(s.safety && s.safety.confirm_typing);
         memCk.checked = !!(s.memory && s.memory.enabled);
-        topKSb.value = (s.memory && s.memory.top_k) || 6;
+        topKSb.value = Math.round((s.memory && s.memory.top_k) || 6);
         visCk.checked = !!(s.vision && s.vision.enabled);
-        visIntSb.value = (s.vision && s.vision.interval_s) || 6;
+        visIntSb.value = Math.round((s.vision && s.vision.interval_s) || 6);
         shaderCk.checked = !!(s.ui && s.ui.shader);
         autostartCk.checked = !!(s.system && s.system.autostart);
     }
@@ -58,7 +59,7 @@ Window {
         s.wake.enabled = wakeCk.checked;
         s.wake.phrases = phrasesF.text.split(/\r?\n/).map(function (x) { return x.trim(); }).filter(function (x) { return x.length > 0; });
         s.wake.allow_bare_nixi = bareCk.checked;
-        s.wake.cooldown_s = cooldownSb.value;
+        s.wake.cooldown_s = cooldownSb.value / 10.0;
         s.session = s.session || {};
         s.session.silence_timeout_s = silenceSb.value;
         s.session.max_duration_s = maxDurSb.value;
@@ -129,7 +130,13 @@ Window {
             RowLayout {
                 CheckBox { id: bareCk; text: "Reaguj też na samo „Nixi”" }
                 Text { text: "Odstęp (s):"; color: "#8f88b8"; font.pixelSize: 12 }
-                SpinBox { id: cooldownSb; from: 0; to: 10; stepSize: 0.5; editable: true }
+                // SpinBox operuje na liczbach całkowitych — trzymamy dziesiąte części sekundy
+                SpinBox {
+                    id: cooldownSb
+                    from: 0; to: 100; stepSize: 5; editable: true
+                    textFromValue: function (value) { return (value / 10.0).toFixed(1); }
+                    valueFromText: function (text) { return Math.round(parseFloat(text) * 10); }
+                }
             }
             Button {
                 text: "Pobierz / odśwież model mowy (ok. 40 MB)"

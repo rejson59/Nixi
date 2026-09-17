@@ -8,6 +8,10 @@ __pycache__/
 build/
 dist/
 *.egg-info/
+.ruff_cache/
+
+# Zasoby generowane przez scripts/gen_icon.py
+nixi/assets/
 
 # Dane lokalne / testy
 nixi_data/

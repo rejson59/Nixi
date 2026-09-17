@@ -13,7 +13,7 @@ import numpy as np
 try:
     import sounddevice as sd
     _HAS_SD = True
-except Exception:  # pragma: no cover
+except Exception:  # noqa: BLE001  # pragma: no cover
     sd = None
     _HAS_SD = False
 
@@ -21,7 +21,7 @@ except Exception:  # pragma: no cover
 def resample(x: np.ndarray, src_rate: int, dst_rate: int) -> np.ndarray:
     if src_rate == dst_rate or x.size == 0:
         return x
-    n_out = max(1, int(round(x.size * dst_rate / src_rate)))
+    n_out = max(1, round(x.size * dst_rate / src_rate))
     xp = np.linspace(0.0, 1.0, x.size, endpoint=False)
     xq = np.linspace(0.0, 1.0, n_out, endpoint=False)
     return np.interp(xq, xp, x).astype(np.float32)
@@ -42,17 +42,19 @@ class OutputPlayer:
         try:
             info = sd.query_devices(kind="output")
             self._rate = int(info["default_samplerate"])
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             self.log.warning("Brak urządzenia wyjściowego audio: %s", e)
             return
         try:
-            self._stream = sd.RawOutputStream(
+            # OutputStream (nie RawOutputStream) — callback dostaje tablicę numpy,
+            # dzięki czemu zapis `outdata[:] = ...` jest poprawny.
+            self._stream = sd.OutputStream(
                 samplerate=self._rate, channels=1, dtype="float32",
                 blocksize=1024, callback=self._cb,
             )
             self._stream.start()
             self.available = True
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             self.log.warning("Nie udało się otworzyć wyjścia audio: %s", e)
             self._stream = None
 
@@ -110,6 +112,6 @@ class OutputPlayer:
             if self._stream is not None:
                 self._stream.stop()
                 self._stream.close()
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
         self._stream = None

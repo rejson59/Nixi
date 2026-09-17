@@ -1,4 +1,6 @@
 # Wymagania do budowy .exe i testów akustycznych (CI)
+# UWAGA: piper-tts >= 1.3 ma wbudowaną fonemizację (espeak-ng w kole),
+# dlatego NIE instalujemy już osobnego pakietu `piper-phonemize`
+# (nie ma go na PyPI dla Pythona 3.12/Windows — powodował błąd instalacji).
 pyinstaller>=6.6
-piper-tts>=1.2
-piper-phonemize>=1.1
+piper-tts>=1.3

@@ -216,5 +216,5 @@ class MemoryStore:
             try:
                 self._conn.commit()
                 self._conn.close()
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
