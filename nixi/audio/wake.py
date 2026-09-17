@@ -10,6 +10,7 @@ wykryje mowę (oszczędność CPU w tle).
 from __future__ import annotations
 
 import logging
+import os
 import queue
 import re
 import threading
@@ -116,6 +117,10 @@ class WakeWordDetector:
     def _resolve_model_dir(self) -> str | None:
         if self._model_dir and Path(self._model_dir).is_dir():
             return str(Path(self._model_dir))
+        # jawne wskazanie modelu (np. cache CI) przez zmienną środowiskowa
+        env_dir = os.environ.get("NIXI_VOSK_MODEL_DIR", "").strip()
+        if env_dir and (Path(env_dir) / "am").is_dir():
+            return str(Path(env_dir))
         model_dir = paths.vosk_model_path(VOSK_MODEL_NAME)
         if (model_dir / "am").is_dir():
             return str(model_dir)
@@ -125,41 +130,54 @@ class WakeWordDetector:
             return str(alt)
         return self._download_model()
 
-    def _download_model(self) -> str | None:
+    def _download_model(self, attempts_per_url: int = 2) -> str | None:
+        """Pobierz i rozpakuj model VOSK. Każdy mirror próbowany kilka razy."""
         import zipfile
 
         import requests
 
         target = paths.vosk_model_path(VOSK_MODEL_NAME)
+        zip_path = target.parent / f"{target.name}.zip"
+        tmp = target.parent / f"{target.name}.zip.part"
         errors = []
         for url in VOSK_DOWNLOAD_URLS:
             full = url.format(name=VOSK_MODEL_NAME)
-            try:
-                if self._on_status:
-                    self._on_status("Pobieram model rozpoznawania mowy (ok. 40 MB)…")
-                self.log.info("Pobieranie modelu VOSK: %s", full)
-                with requests.get(full, stream=True, timeout=60) as r:
-                    r.raise_for_status()
-                    total = int(r.headers.get("Content-Length") or 0)
-                    done = 0
-                    zip_path = target.parent / f"{target.name}.zip"
-                    tmp = target.parent / f"{target.name}.zip.part"
-                    with open(tmp, "wb") as f:
-                        for chunk in r.iter_content(chunk_size=1 << 16):
-                            f.write(chunk)
-                            done += len(chunk)
-                            if total and self._on_status:
-                                self._on_status(f"Pobieram model mowy… {100 * done // total}%")
+            for attempt in range(1, attempts_per_url + 1):
+                if not self._running and self._thread is not None:
+                    return None
+                try:
+                    if self._on_status:
+                        self._on_status("Pobieram model rozpoznawania mowy (ok. 40 MB)…")
+                    self.log.info("Pobieranie modelu VOSK: %s (próba %d)", full, attempt)
+                    with requests.get(full, stream=True, timeout=(15, 120)) as r:
+                        r.raise_for_status()
+                        total = int(r.headers.get("Content-Length") or 0)
+                        done = 0
+                        with open(tmp, "wb") as f:
+                            for chunk in r.iter_content(chunk_size=1 << 16):
+                                f.write(chunk)
+                                done += len(chunk)
+                                if total and self._on_status:
+                                    self._on_status(f"Pobieram model mowy… {100 * done // total}%")
+                    if tmp.stat().st_size < 1_000_000:
+                        raise OSError(f"pobrany plik jest za mały ({tmp.stat().st_size} B)")
                     tmp.replace(zip_path)
-                with zipfile.ZipFile(zip_path) as z:
-                    z.extractall(paths.models_dir())
-                zip_path.unlink(missing_ok=True)
-                if (target / "am").is_dir():
-                    self.log.info("Model VOSK gotowy: %s", target)
-                    return str(target)
-            except Exception as e:  # noqa: BLE001
-                errors.append(f"{full}: {e}")
-                self.log.warning("Pobranie modelu nie powiodło się: %s", e)
+                    with zipfile.ZipFile(zip_path) as z:
+                        if z.testzip() is not None:
+                            raise zipfile.BadZipFile("uszkodzone archiwum modelu")
+                        z.extractall(paths.models_dir())
+                    zip_path.unlink(missing_ok=True)
+                    if (target / "am").is_dir():
+                        self.log.info("Model VOSK gotowy: %s", target)
+                        return str(target)
+                    raise OSError("archiwum nie zawiera katalogu modelu")
+                except Exception as e:  # noqa: BLE001  (sieć/IO — dowolny wyjątek)
+                    errors.append(f"{full} (próba {attempt}): {e}")
+                    self.log.warning("Pobranie modelu nie powiodło się: %s", e)
+                    tmp.unlink(missing_ok=True)
+                    zip_path.unlink(missing_ok=True)
+                    if attempt < attempts_per_url:
+                        time.sleep(2.0 * attempt)
         if self._on_status:
             self._on_status("Nie udało się pobrać modelu mowy — wybudzanie głosowe niedostępne.")
         self.log.error("Nie udało się pobrać modelu VOSK: %s", "; ".join(errors))

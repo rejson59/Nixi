@@ -49,18 +49,16 @@ CREATE TABLE IF NOT EXISTS kv(
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+-- Indeks pełnotekstowy trzyma treść ASCII-składaną (bez polskich znaków),
+-- bo zapytania też są składane przez fold(). Wcześniej indeks przechowywał
+-- oryginał, więc „zespol” nigdy nie trafiało w „zespół”.
 CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
-  content, category, content='memories', content_rowid='id', tokenize='unicode61'
+  content_folded, category, tokenize='unicode61'
 );
-CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
-  INSERT INTO memories_fts(rowid, content, category)
-  VALUES (new.id, new.content, new.category);
-END;
-CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN
-  INSERT INTO memories_fts(memories_fts, rowid, content, category)
-  VALUES ('delete', old.id, old.content, old.category);
-END;
 """
+
+# Stary (wadliwy) indeks: external-content FTS na nieskładanej treści.
+_LEGACY_FTS_MARKERS = ("content='memories'", "content=\"memories\"")
 
 
 class MemoryStore:
@@ -70,8 +68,40 @@ class MemoryStore:
         self._conn = sqlite3.connect(str(db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         with self._lock:
+            self._migrate_legacy_fts()
             self._conn.executescript(_SCHEMA)
+            self._reindex_if_empty()
             self._conn.commit()
+
+    # -------------------------------------------------------------- migracja
+    def _migrate_legacy_fts(self) -> None:
+        """Usuń stary indeks FTS (i jego triggery), jeśli baza pochodzi z wcześniejszej wersji."""
+        row = self._conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='memories_fts'"
+        ).fetchone()
+        if row is None:
+            return
+        sql = row["sql"] or ""
+        if not any(marker in sql for marker in _LEGACY_FTS_MARKERS):
+            return
+        self.log.info("Przebudowuję indeks pamięci (nowy format, obsługa polskich znaków).")
+        self._conn.executescript(
+            "DROP TRIGGER IF EXISTS memories_ai;"
+            "DROP TRIGGER IF EXISTS memories_ad;"
+            "DROP TABLE IF EXISTS memories_fts;"
+        )
+
+    def _reindex_if_empty(self) -> None:
+        """Zbuduj indeks od zera, gdy jest pusty, a wspomnienia już istnieją."""
+        n_fts = self._conn.execute("SELECT COUNT(*) c FROM memories_fts").fetchone()["c"]
+        n_mem = self._conn.execute("SELECT COUNT(*) c FROM memories").fetchone()["c"]
+        if n_fts or not n_mem:
+            return
+        rows = self._conn.execute("SELECT id, content, category FROM memories").fetchall()
+        self._conn.executemany(
+            "INSERT INTO memories_fts(rowid, content_folded, category) VALUES(?,?,?)",
+            [(r["id"], fold(r["content"]), r["category"]) for r in rows],
+        )
 
     # ------------------------------------------------------------- pomocnicze
     def _execute(self, sql: str, params=()) -> list[sqlite3.Row]:
@@ -91,8 +121,12 @@ class MemoryStore:
                 "INSERT INTO memories(ts, content, category, meta, embedding) VALUES(?,?,?,?,?)",
                 (time.time(), content, category, json.dumps(meta or {}, ensure_ascii=False), embedding),
             )
-            self._conn.commit()
             mid = int(cur.lastrowid)
+            self._conn.execute(
+                "INSERT INTO memories_fts(rowid, content_folded, category) VALUES(?,?,?)",
+                (mid, fold(content), category),
+            )
+            self._conn.commit()
         self.log.info("Pamięć #%d: %s", mid, content[:80])
         return mid
 
@@ -115,17 +149,22 @@ class MemoryStore:
                 if not tokens:
                     tokens = [folded]
                 match = " OR ".join(f'"{t}"' for t in tokens)
-                rows = self._conn.execute(
-                    """
-                    SELECT m.id, m.ts, m.content, m.category, m.meta, m.embedding,
-                           bm25(memories_fts, 6.0, 1.0) AS score
-                    FROM memories_fts JOIN memories m ON m.id = memories_fts.rowid
-                    WHERE memories_fts MATCH ?
-                    ORDER BY score
-                    LIMIT ?
-                    """,
-                    (match, k * 3),
-                ).fetchall()
+                try:
+                    rows = self._conn.execute(
+                        """
+                        SELECT m.id, m.ts, m.content, m.category, m.meta, m.embedding,
+                               bm25(memories_fts, 6.0, 1.0) AS score
+                        FROM memories_fts JOIN memories m ON m.id = memories_fts.rowid
+                        WHERE memories_fts MATCH ?
+                        ORDER BY score
+                        LIMIT ?
+                        """,
+                        (match, k * 3),
+                    ).fetchall()
+                except sqlite3.OperationalError as e:
+                    # np. zapytanie ze składnią FTS, której nie da się sparsować
+                    self.log.warning("Zapytanie FTS odrzucone (%s) — używam ostatnich wpisów.", e)
+                    rows = []
                 if not rows:
                     rows = self._conn.execute(
                         "SELECT id, ts, content, category, meta, embedding FROM memories ORDER BY ts DESC LIMIT ?",
@@ -157,6 +196,7 @@ class MemoryStore:
     def forget(self, memory_id: int) -> None:
         with self._lock:
             self._conn.execute("DELETE FROM memories WHERE id=?", (memory_id,))
+            self._conn.execute("DELETE FROM memories_fts WHERE rowid=?", (memory_id,))
             self._conn.commit()
 
     # --------------------------------------------------------------- notatki

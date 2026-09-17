@@ -12,6 +12,13 @@ Window {
     title: "Nixi — ustawienia"
     color: "#0e0a24"
     flags: Qt.Dialog | Qt.WindowCloseButtonHint
+    // Okno pokazuje się samo po załadowaniu przez Loader (bez wywoływania show()
+    // z zewnątrz, czego QML nie potrafi zweryfikować statycznie).
+    visible: true
+
+    // Zamknięcie musi zwolnić Loader, inaczej kolejne kliknięcie ⚙ nic nie robi.
+    signal closed()
+    onVisibleChanged: if (!visible) win.closed()
 
     property var s: ({})
     property string saveMsg: ""
@@ -116,7 +123,7 @@ Window {
             }
             Text { text: win.keyMsg; color: "#f5b942"; font.pixelSize: 12; Layout.fillWidth: true; wrapMode: Text.Wrap }
 
-            Rectangle { Layout.fillWidth: true; height: 1; color: "#2a2350" }
+            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: "#2a2350" }
 
             Text { text: "WYBUDZANIE GŁOSOWE („Hej Nixi”)"; color: "#8b5cf6"; font.pixelSize: 12; font.bold: true }
             CheckBox { id: wakeCk; text: "Nasłuch słowa wybudzającego w tle" }
@@ -144,14 +151,14 @@ Window {
             }
             Text { text: win.voskMsg; color: "#f5b942"; font.pixelSize: 12; Layout.fillWidth: true; wrapMode: Text.Wrap }
 
-            Rectangle { Layout.fillWidth: true; height: 1; color: "#2a2350" }
+            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: "#2a2350" }
 
             Text { text: "BEZPIECZEŃSTWO"; color: "#8b5cf6"; font.pixelSize: 12; font.bold: true }
             CheckBox { id: riskyCk; text: "Potwierdzaj ryzykowne akcje (kliknięcia, pisanie, zamykanie aplikacji, system)" }
             CheckBox { id: typingCk; text: "Potwierdzaj wpisywanie tekstu" }
             CheckBox { id: allCk; text: "Potwierdzaj KAŻDĄ akcję" }
 
-            Rectangle { Layout.fillWidth: true; height: 1; color: "#2a2350" }
+            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: "#2a2350" }
 
             Text { text: "SESJA I PAMIĘĆ"; color: "#8b5cf6"; font.pixelSize: 12; font.bold: true }
             RowLayout {
@@ -174,7 +181,7 @@ Window {
                 placeholderText: "Twoje imię (opcjonalnie)"
             }
 
-            Rectangle { Layout.fillWidth: true; height: 1; color: "#2a2350" }
+            Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: "#2a2350" }
 
             Text { text: "SYSTEM"; color: "#8b5cf6"; font.pixelSize: 12; font.bold: true }
             CheckBox { id: shaderCk; text: "Efekty shader (wyłącz przy problemach z grafiką)" }

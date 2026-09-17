@@ -110,7 +110,69 @@ def test_memory() -> None:
     assert m.recent_dialog(1)[0]["role"] == "user"
     stats = m.stats()
     assert stats["memories"] >= 2 and stats["notes"] >= 1
+
+    # Wyszukiwanie musi działać niezależnie od polskich znaków w zapytaniu.
+    # (indeks FTS trzyma treść ASCII-składaną — zapytania też są składane)
+    m.add_memory("Użytkownik mieszka w Łodzi i lubi łyżwy.", "fact")
+    for query in ("zespół", "zespol", "ZESPOL"):
+        hits = m.recall(query, 3)
+        assert any("Queen" in x["content"] for x in hits), (query, hits)
+    for query in ("łyżwy", "lyzwy"):
+        hits = m.recall(query, 3)
+        assert any("Łodzi" in x["content"] for x in hits), (query, hits)
+    # zapytanie ze znakami specjalnymi FTS nie może wywalić wyszukiwania
+    assert isinstance(m.recall('cudzysłów " AND (', 3), list)
+
+    # usuwanie czyści też indeks
+    mid = m.add_memory("Tymczasowe wspomnienie o ananasie.", "fact")
+    assert any("ananas" in x["content"] for x in m.recall("ananasie", 5))
+    m.forget(mid)
+    assert not any("ananas" in x["content"] for x in m.recall("ananasie", 5))
     m.close()
+
+
+def test_memory_migration() -> None:
+    """Baza z poprzedniej wersji (wadliwy indeks FTS) musi się przenieść bez utraty danych."""
+    import sqlite3
+
+    from nixi.core.memory import MemoryStore
+
+    db = Path(tempfile.mkdtemp()) / "old.db"
+    legacy = sqlite3.connect(db)
+    legacy.executescript(
+        """
+        CREATE TABLE memories(id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL,
+          content TEXT NOT NULL, category TEXT NOT NULL DEFAULT 'fact',
+          meta TEXT NOT NULL DEFAULT '{}', embedding BLOB);
+        CREATE TABLE notes(id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL,
+          title TEXT NOT NULL, content TEXT NOT NULL DEFAULT '');
+        CREATE TABLE conversations(id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL,
+          session_id TEXT, role TEXT NOT NULL, text TEXT NOT NULL);
+        CREATE TABLE kv(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE VIRTUAL TABLE memories_fts USING fts5(content, category,
+          content='memories', content_rowid='id', tokenize='unicode61');
+        CREATE TRIGGER memories_ai AFTER INSERT ON memories BEGIN
+          INSERT INTO memories_fts(rowid, content, category)
+          VALUES (new.id, new.content, new.category);
+        END;
+        """
+    )
+    legacy.execute("INSERT INTO memories(ts, content, category, meta) VALUES(1, ?, 'preference', '{}')",
+                   ("Ulubiony zespół użytkownika to Queen.",))
+    legacy.execute("INSERT INTO kv(key, value) VALUES('user_name', 'Jan')")
+    legacy.commit()
+    legacy.close()
+
+    m = MemoryStore(db)
+    try:
+        assert m.get_kv("user_name") == "Jan", "migracja zgubiła dane kv"
+        assert m.stats()["memories"] == 1, "migracja zgubiła wspomnienia"
+        hits = m.recall("zespol", 3)
+        assert any("Queen" in x["content"] for x in hits), hits
+        m.add_memory("Nowe wspomnienie o kawie.", "fact")
+        assert any("kawie" in x["content"] for x in m.recall("kawie", 3))
+    finally:
+        m.close()
 
 
 # ------------------------------------------------------------ 4. narzędzia
@@ -397,25 +459,35 @@ def test_synth() -> None:
 PIPER_PL_CANDIDATES = ("pl_PL-darkman-medium", "pl_PL-gosia-medium")
 
 
-def _download_piper_voice(data_dir: Path) -> Path | None:
+def _acoustics_required() -> bool:
+    """Czy brak głosu/modelu ma wywalić test (CI), czy tylko go pominąć (lokalnie)?"""
+    return os.environ.get("NIXI_REQUIRE_ACOUSTICS", "").strip().lower() in ("1", "true", "yes")
+
+
+def _download_piper_voice(data_dir: Path, attempts: int = 3) -> Path | None:
     """Pobierz polski głos Piper. Zwraca ścieżkę .onnx albo None (brak sieci/pakietu)."""
     try:
         from piper.download_voices import download_voice
-    except Exception as e:  # noqa: BLE001
+    except ImportError as e:
         print(f"    (piper niedostępny: {e})")
         return None
     last_err: Exception | None = None
     for name in PIPER_PL_CANDIDATES:
-        try:
-            # UWAGA: piper.download_voices.list_voices() tylko DRUKUJE listę i zwraca None,
-            # więc nie da się po niej iterować — pobieramy znane nazwy głosów wprost.
-            download_voice(name, data_dir)
-            onnx = data_dir / f"{name}.onnx"
-            if onnx.exists() and (data_dir / f"{name}.onnx.json").exists():
-                return onnx
-        except Exception as e:  # noqa: BLE001
-            last_err = e
-    print(f"    (nie udało się pobrać głosu Piper: {last_err})")
+        for attempt in range(1, attempts + 1):
+            try:
+                # UWAGA: piper.download_voices.list_voices() tylko DRUKUJE listę i zwraca None,
+                # więc nie da się po niej iterować — pobieramy znane nazwy głosów wprost.
+                download_voice(name, data_dir)
+                onnx = data_dir / f"{name}.onnx"
+                if onnx.exists() and (data_dir / f"{name}.onnx.json").exists():
+                    return onnx
+                last_err = RuntimeError(f"niekompletne pliki głosu {name}")
+            except Exception as e:  # noqa: BLE001  (sieć potrafi rzucić czymkolwiek)
+                last_err = e
+                if attempt < attempts:
+                    time.sleep(2.0 * attempt)
+        print(f"    (głos {name} niedostępny: {last_err})")
+    print(f"    (nie udało się pobrać żadnego głosu Piper: {last_err})")
     return None
 
 
@@ -452,10 +524,15 @@ def test_acoustics() -> None:
     w = WakeWordDetector([r"\bhej\s+nixi\b", r"\bhej\s+niki\b", r"\bhej\s+nixy\b"])
     model_dir = w._resolve_model_dir()
     if not model_dir:
-        raise AssertionError("brak modelu VOSK do testu akustycznego")
+        if _acoustics_required():
+            raise AssertionError("brak modelu VOSK do testu akustycznego")
+        print("    ⊘ pomijam test akustyczny — brak modelu VOSK (offline?)")
+        return
 
     voice_path = _download_piper_voice(Path(tempfile.mkdtemp()))
     if not voice_path:
+        if _acoustics_required():
+            raise AssertionError("nie udało się pobrać głosu Piper do testu akustycznego")
         print("    ⊘ pomijam test akustyczny — brak głosu Piper")
         return
 
@@ -552,10 +629,13 @@ def test_settings_roundtrip() -> None:
     old_data_dir = paths.data_dir
     paths.data_dir = lambda: tmp  # type: ignore[assignment]
     try:
-        ctrl = Controller(settings=C.AppSettings(), memory=MemoryStore(tmp / "m.db"))
+        base = C.AppSettings()
+        base.wake.enabled = False
+        ctrl = Controller(settings=base, memory=MemoryStore(tmp / "m.db"))
         try:
+            # wake.enabled=False → test nie próbuje pobierać modelu VOSK (offline, szybko)
             payload = _json.dumps({"api_key": "AIzaSy" + "A" * 27, "user_name": "Jan",
-                                   "wake": {"cooldown_s": 3.5}})
+                                   "wake": {"cooldown_s": 3.5, "enabled": False}})
             msg = ctrl.saveSettings(payload)
             assert "Zapisano" in msg, msg
             public = _json.loads((tmp / "settings.json").read_text(encoding="utf-8"))
@@ -564,7 +644,7 @@ def test_settings_roundtrip() -> None:
             assert public["user_name"] == "Jan" and public["wake"]["cooldown_s"] == 3.5
             assert local["api_key"].startswith("AIzaSy")
 
-            bad = ctrl.saveSettings(_json.dumps({"wake": {"phrases": ["[zly regex"]}}))
+            bad = ctrl.saveSettings(_json.dumps({"wake": {"phrases": ["[zly regex"], "enabled": False}}))
             assert "nieprawidłowe wyrażenie" in bad, bad
             assert "Błąd JSON" in ctrl.saveSettings("{nie-json}")
             assert _json.loads(ctrl.settingsJson())["user_name"] == "Jan"
@@ -585,6 +665,36 @@ def test_audio_resample() -> None:
     assert resample(x, 16000, 16000) is x
     assert resample(np.zeros(0, dtype=np.float32), 16000, 24000).size == 0
     assert float(np.max(np.abs(down))) <= 1.01
+
+
+# ----------------------------------------------------- 10c. statyczna analiza QML
+def test_qml_lint() -> None:
+    """qmllint wyłapuje błędy w QML bez uruchamiania GUI (działa też bez OpenGL)."""
+    import shutil
+    import subprocess
+
+    ui_dir = Path(__file__).resolve().parent / "ui"
+    files = sorted(str(p) for p in ui_dir.glob("*.qml"))
+    assert files, f"brak plików QML w {ui_dir}"
+
+    exe = shutil.which("pyside6-qmllint")
+    if not exe:
+        candidate = Path(sys.executable).parent / "pyside6-qmllint"
+        exe = str(candidate) if candidate.exists() else None
+    if not exe:
+        print("    ⊘ pomijam qmllint — brak narzędzia w środowisku")
+        return
+
+    proc = subprocess.run([exe, *files], capture_output=True, text=True, check=False)
+    output = (proc.stdout or "") + (proc.stderr or "")
+    errors = [ln for ln in output.splitlines() if ln.startswith("Error:")]
+    # Ostrzeżenia „unqualified" (m.in. dostęp do kontekstowego `bridge`) są tu normalne.
+    serious = [
+        ln for ln in output.splitlines()
+        if ln.startswith("Warning:") and "[unqualified]" not in ln
+    ]
+    assert not errors, "qmllint zgłosił błędy:\n" + "\n".join(errors)
+    assert not serious, "qmllint zgłosił ostrzeżenia:\n" + "\n".join(serious)
 
 
 # ------------------------------------------------------------ 11. QML smoke
@@ -657,6 +767,7 @@ def main(argv: list[str] | None = None) -> int:
     check("maszyna stanów", test_state_machine)
     check("konfiguracja", test_config)
     check("pamięć długotrwała", test_memory)
+    check("migracja bazy pamięci", test_memory_migration)
     check("narzędzia i schematy", test_tools)
     check("VAD", test_vad)
     check("dopasowanie „Hej Nixi”", test_wake_matching)
@@ -667,6 +778,7 @@ def main(argv: list[str] | None = None) -> int:
     check("mostek QML (sloty)", test_controller_slots)
     check("zapis ustawień (UI)", test_settings_roundtrip)
     check("resampling audio", test_audio_resample)
+    check("statyczna analiza QML (qmllint)", test_qml_lint)
     if args.acoustics:
         check("test akustyczny wake word (Piper→VOSK)", test_acoustics)
     check("interfejs QML (offscreen)", lambda: qml_smoke(args.screenshot))
