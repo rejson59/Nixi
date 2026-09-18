@@ -129,8 +129,8 @@ def advance(state: State, event: Event) -> State:
     """
     try:
         return _TRANSITIONS[(state, event)]
-    except KeyError:
-        raise StateError(f"Niedozwolone przejście: {state.name} + {event.name}")
+    except KeyError as e:
+        raise StateError(f"Niedozwolone przejście: {state.name} + {event.name}") from e
 
 
 def label(state: State) -> str:

@@ -357,7 +357,7 @@ Item {
             id: gearMa
             anchors.fill: parent
             hoverEnabled: true
-            onClicked: settingsLoader.active = true
+            onClicked: { settingsLoader.active = false; settingsLoader.active = true; }
         }
     }
 
@@ -366,7 +366,13 @@ Item {
         objectName: "settingsLoader"
         active: false
         source: "Settings.qml"
-        onLoaded: { item.show(); }
+        // Settings.qml samo ustawia visible: true; po zamknięciu zwalniamy Loader,
+        // żeby ⚙ dało się kliknąć ponownie.
+        Connections {
+            target: settingsLoader.item
+            ignoreUnknownSignals: true
+            function onClosed() { settingsLoader.active = false; }
+        }
     }
 
     // ---------------------------------------------- interakcja z kulą

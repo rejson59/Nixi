@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import os
 import re
 from dataclasses import asdict, dataclass, field, fields
-from typing import Any
 
 from . import paths
 
@@ -135,27 +135,48 @@ def _merge(base: dict, override: dict) -> dict:
 
 def _load_json(path) -> dict:
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except FileNotFoundError:
         return {}
+    except (OSError, json.JSONDecodeError) as e:
+        logging.getLogger("nixi.config").warning("Nie udało się wczytać %s: %s", path, e)
+        return {}
+
+
+SECTIONS: dict[str, type] = {
+    "wake": WakeSettings,
+    "session": SessionSettings,
+    "safety": SafetySettings,
+    "vision": VisionSettings,
+    "memory": MemorySettings,
+    "ui": UISettings,
+    "hotkeys": HotkeySettings,
+    "system": SystemSettings,
+}
+
+
+def _section_from_dict(cls: type, data: dict):
+    """Zbuduj dataclass sekcji, ignorując nieznane/zbędne klucze (odporność na stare pliki)."""
+    known = {f.name for f in fields(cls)}
+    return cls(**{k: v for k, v in (data or {}).items() if k in known})
+
+
+def from_dict(data: dict) -> AppSettings:
+    """Zbuduj AppSettings ze słownika (scalone z domyślnymi, odporne na braki i śmieci)."""
+    merged = _merge(asdict(AppSettings()), data or {})
+    scalar_fields = {f.name for f in fields(AppSettings)} - set(SECTIONS)
+    s = AppSettings(**{k: merged[k] for k in scalar_fields if k in merged})
+    for name, cls in SECTIONS.items():
+        setattr(s, name, _section_from_dict(cls, merged.get(name, {})))
+    return s
 
 
 def load_settings() -> AppSettings:
     data = _load_json(paths.settings_path())
     # lokalne nadpisania (klucz API itd.) mają wyższy priorytet
     local = _load_json(paths.settings_local_path())
-    merged = _merge(asdict(AppSettings()), _merge(data, local))
-    s = AppSettings(**{k: merged[k] for k in fields(AppSettings) if k in merged})
-    s.wake = WakeSettings(**merged["wake"])
-    s.session = SessionSettings(**merged["session"])
-    s.safety = SafetySettings(**merged["safety"])
-    s.vision = VisionSettings(**merged["vision"])
-    s.memory = MemorySettings(**merged["memory"])
-    s.ui = UISettings(**merged["ui"])
-    s.hotkeys = HotkeySettings(**merged["hotkeys"])
-    s.system = SystemSettings(**merged["system"])
-    return s
+    return from_dict(_merge(data, local))
 
 
 def save_settings(settings: AppSettings, local: bool = False) -> None:

@@ -19,20 +19,21 @@ def _err(output: str) -> dict:
 
 def system_info(args: dict, ctx) -> dict:
     try:
-        total, used, free = shutil.disk_usage(os.path.expanduser("~"))
+        total, _used, free = shutil.disk_usage(os.path.expanduser("~"))
         gb = 1024 ** 3
+        ram = _ram_gb()
         lines = [
             f"System: {platform.system()} {platform.release()} ({platform.machine()})",
             f"Komputer: {platform.node()}",
             f"CPU: {os.cpu_count() or '?'} rdzeni",
-            f"RAM: {_ram_gb():.1f} GB" if _ram_gb() else "RAM: ?",
+            f"RAM: {ram:.1f} GB" if ram else "RAM: ?",
             f"Dysk: {free / gb:.0f} GB wolnych z {total / gb:.0f} GB",
         ]
         if sys.platform == "win32":
             batt = _battery_windows()
             if batt:
                 lines.append(f"Bateria: {batt}")
-        return _ok("\n".join(l for l in lines if l))
+        return _ok("\n".join(line for line in lines if line))
     except Exception as e:  # noqa: BLE001
         return _err(f"Błąd odczytu informacji: {e}")
 
@@ -94,7 +95,7 @@ def control_system(args: dict, ctx) -> dict:
             subprocess.Popen(["shutdown", "/r", "/t", "30", "/c", "Nixi uruchamia ponownie komputer za 30 s (anuluj: shutdown /a)"])
             return _ok("Ponowne uruchomienie za 30 sekund.")
         if action == "abort":
-            subprocess.run(["shutdown", "/a"], capture_output=True, text=True, timeout=10)
+            subprocess.run(["shutdown", "/a"], capture_output=True, text=True, timeout=10, check=False)
             return _ok("Anulowano zamykanie/restart.")
         return _err(f"Nieznana akcja: {action}")
     except Exception as e:  # noqa: BLE001
@@ -115,32 +116,34 @@ def set_brightness(args: dict, ctx) -> dict:
 
 
 def _set_brightness_dxva2(level: int) -> bool:
-    from ctypes import POINTER, Structure, byref, c_uint32, c_ulong, windll
-    from ctypes.wintypes import DWORD, HANDLE, HDC, RECT
+    """Ustaw jasność monitora przez DDC/CI (dxva2.dll)."""
+    from ctypes import Structure, byref, windll
+    from ctypes.wintypes import DWORD, HANDLE, POINT
 
     try:
         class PHYSICAL_MONITOR(Structure):
-            _fields_ = [("hPhysicalMonitor", HANDLE), ("szPhysicalMonitorDescription", ctypes.c_wchar * 128)]
+            _fields_ = [("hPhysicalMonitor", HANDLE),
+                        ("szPhysicalMonitorDescription", ctypes.c_wchar * 128)]
 
-        user32 = windll.user32
         dxva2 = windll.dxva2
-        mon = ctypes.windll.user32.MonitorFromPoint(
-            ctypes.wintypes.POINT(0, 0), 1  # MONITOR_DEFAULTTOPRIMARY
-        )
+        # MONITOR_DEFAULTTOPRIMARY = 1
+        mon = windll.user32.MonitorFromPoint(POINT(0, 0), 1)
         n = DWORD(0)
         if not dxva2.GetNumberOfPhysicalMonitorsFromHMONITOR(mon, byref(n)) or n.value < 1:
             return False
         monitors = (PHYSICAL_MONITOR * n.value)()
         if not dxva2.GetPhysicalMonitorsFromHMONITOR(mon, n.value, monitors):
             return False
+        changed = False
         for m in monitors:
-            cur = DWORD(0)
-            _min = DWORD(0)
-            _max = DWORD(0)
-            dxva2.GetMonitorBrightness(m.hPhysicalMonitor, byref(_min), byref(cur), byref(_max))
-            target = _min.value + (level / 100.0) * (_max.value - _min.value)
-            dxva2.SetMonitorBrightness(m.hPhysicalMonitor, DWORD(int(target)))
-            dxva2.DestroyPhysicalMonitor(m.hPhysicalMonitor)
-        return True
+            try:
+                cur, lo, hi = DWORD(0), DWORD(0), DWORD(0)
+                if dxva2.GetMonitorBrightness(m.hPhysicalMonitor, byref(lo), byref(cur), byref(hi)):
+                    target = lo.value + (level / 100.0) * (hi.value - lo.value)
+                    if dxva2.SetMonitorBrightness(m.hPhysicalMonitor, DWORD(round(target))):
+                        changed = True
+            finally:
+                dxva2.DestroyPhysicalMonitor(m.hPhysicalMonitor)
+        return changed
     except Exception:  # noqa: BLE001
         return False

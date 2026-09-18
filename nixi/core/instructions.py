@@ -3,12 +3,10 @@ from __future__ import annotations
 
 import datetime
 
-from .. import version
-
 
 def _context_block(user_name: str, memories: list[dict], dialog: list[dict]) -> str:
     parts = []
-    now = datetime.datetime.now()
+    now = datetime.datetime.now().astimezone()
     parts.append(f"Dziś jest {now.strftime('%A, %d.%m.%Y, godzina %H:%M')}.")
     if user_name:
         parts.append(f"Użytkownik ma na imię: {user_name}.")

@@ -9,9 +9,8 @@ import asyncio
 import base64
 import json
 import logging
-import re
-from dataclasses import dataclass, field
-from typing import Any, Callable
+from collections.abc import Callable
+from dataclasses import dataclass
 
 import websockets
 
@@ -20,21 +19,18 @@ WS_URL = (
     "google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key={key}"
 )
 
-_RATE_RE = re.compile(r"rate=(\d+)")
-
-
 @dataclass
 class LiveCallbacks:
-    on_ready: Callable[[], None] = None
-    on_audio: Callable[[bytes, str], None] = None          # (PCM int16 LE, mimeType)
-    on_user_text: Callable[[str], None] = None             # transkrypcja użytkownika
-    on_assistant_text: Callable[[str], None] = None        # transkrypcja Nixi (przyrosty)
-    on_tool_calls: Callable[[list[dict]], None] = None
-    on_interrupted: Callable[[], None] = None
-    on_turn_complete: Callable[[], None] = None
-    on_goaway: Callable[[], None] = None
-    on_closed: Callable[[int, str], None] = None
-    on_error: Callable[[str], None] = None
+    on_ready: Callable[[], None] | None = None
+    on_audio: Callable[[bytes, str], None] | None = None          # (PCM int16 LE, mimeType)
+    on_user_text: Callable[[str], None] | None = None             # transkrypcja użytkownika
+    on_assistant_text: Callable[[str], None] | None = None        # transkrypcja Nixi (przyrosty)
+    on_tool_calls: Callable[[list[dict]], None] | None = None
+    on_interrupted: Callable[[], None] | None = None
+    on_turn_complete: Callable[[], None] | None = None
+    on_goaway: Callable[[], None] | None = None
+    on_closed: Callable[[int, str], None] | None = None
+    on_error: Callable[[str], None] | None = None
 
 
 class GeminiLiveClient:
@@ -82,7 +78,7 @@ class GeminiLiveClient:
         try:
             await asyncio.wait_for(self._ready.wait(), timeout=timeout_s)
             return True
-        except asyncio.TimeoutError:
+        except TimeoutError:
             if self.cb.on_error:
                 self.cb.on_error("Gemini nie potwierdziło sesji (timeout).")
             await self.close()

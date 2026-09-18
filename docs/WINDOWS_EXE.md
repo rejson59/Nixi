@@ -54,9 +54,12 @@ Skrypt: instaluje zależności → generuje ikonę → uruchamia **samotest z te
 wake word nie działa) → `pyinstaller Nixi.spec` → `dist/Nixi.exe` (onefile, windowed,
 ikona, metadane wersji).
 
-**B. GitHub Actions:** skopiuj `docs/build-windows.workflow.yml` do
-`.github/workflows/build-windows.yml` w swoim repozytorium i uruchom workflow
-*ręcznie* (`workflow_dispatch`) — artefakt `Nixi-windows-exe` w podsumowaniu biegu.
+**B. GitHub Actions:** workflow `.github/workflows/build-windows.yml` uruchamia się
+automatycznie przy każdym pushu i pull requeście, a także ręcznie
+(*Actions → build-windows → Run workflow*). Zawiera dwa etapy: szybkie `checks`
+(lint ruff + samotest na Linuksie) oraz `build` na Windows (samotest z testem
+akustycznym → PyInstaller → weryfikacja i smoke test `.exe`). Gotowy plik pobierzesz
+jako artefakt `Nixi-windows-exe` w podsumowaniu biegu.
 
 ## Diagnostyka
 

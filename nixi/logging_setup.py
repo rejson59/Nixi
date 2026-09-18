@@ -20,8 +20,8 @@ def setup(verbose: bool = False) -> logging.Logger:
         fh = RotatingFileHandler(paths.logs_dir() / "nixi.log", maxBytes=2_000_000, backupCount=2, encoding="utf-8")
         fh.setFormatter(fmt)
         root.addHandler(fh)
-    except Exception:
-        pass
+    except OSError as e:
+        print(f"Nixi: nie udało się otworzyć pliku logu ({e}) — loguję tylko na konsolę.", file=sys.stderr)
     sh = logging.StreamHandler(sys.stdout)
     sh.setFormatter(fmt)
     root.addHandler(sh)

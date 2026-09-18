@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import io
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 from .. import config as config_mod
 
@@ -105,7 +105,16 @@ def _num(desc: str) -> dict:
 
 # Importy wykonywane na końcu (unikanie cykli importów)
 def _load_tools() -> list[Tool]:
-    from . import apps, browser, notes_memory, screen_control, system_power, volume, screenshot, session_end
+    from . import (
+        apps,
+        browser,
+        notes_memory,
+        screen_control,
+        screenshot,
+        session_end,
+        system_power,
+        volume,
+    )
     out: list[Tool] = []
     out.append(Tool("search_web", "Wyszukaj zapytanie w internecie (otwiera przeglądarkę z wynikami Google).",
                     _p({"query": _str("Zapytanie do wyszukania.")}), browser.search_web, confirm="never", timeout=10))
