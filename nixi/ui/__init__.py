@@ -1,1 +1,0 @@
-"""Podmoduł UI Nixi."""
