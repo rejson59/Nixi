@@ -1,1 +1,0 @@
-"""Narzędzia (tools) Nixi."""
