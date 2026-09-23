@@ -16,7 +16,7 @@ trzech ustawień systemowych żadna aplikacja z mikrofonem w tle nie przetrwa.
 
 | Obszar | Co potrafi |
 |---|---|
-| **Mózg** | Gemini Live API (WebSocket `BidiGenerateContent`). Klucz API wklejasz w aplikacji. Klient ma wbudowaną **ochronę TPM** (65K/min free tier) — liczy wejście **i wyjście** modelu, nigdy nie wysyła audio ponad budżet i łagodnie pauzuje przy 429. |
+| **Mózg** | Gemini Live API (WebSocket `BidiGenerateContent`). Klucz API wklejasz w aplikacji. Klient ma wbudowaną **ochronę TPM** (65K/min free tier) — liczy wejście **i wyjście** modelu, nigdy nie wysyła audio ponad budżet i łagodnie pauzuje przy 429. Sesja **wznawia się sama** po zerwaniu sieci i po komunikacie `goAway` (session resumption, 3 próby z backoffem). |
 | **Pamięć długotrwała** | Po każdej rozmowie NIXI (tani model flash) wyciąga **trwałe fakty** (`memory_facts`) i krótkie **podsumowanie** (`recent_conversations`). Fakty są wstrzykiwane w system prompt kolejnych sesji. |
 | **Wake-word** | „Hej Nixi” — **offline**, bez modeli i sieci: cechy mel (Goertzel) + adaptacyjny szum + DTW przeciwko Twojemu 3-krotnemu nagraniu. Niskie zużycie: jeden wspólny `AudioRecord`, brak wakelocka, tryb ECO. Działa w tle i **nad ekranem blokady**. |
 | **Tło** | Foreground service (typ `microphone`) z `START_STICKY`; po restarcie telefonu (i po aktualizacji aplikacji) nasłuch wznawia się sam, a **przypomnienia są odtwarzane** z bazy (AlarmManager czyści alarmy przy restarcie). |
@@ -54,6 +54,17 @@ Ta wersja nie dodaje nowych „modułów” — porządkuje i utwardza to, co ju
 - `ScreenCaptureService` rejestrował callback MediaProjection **po** `createVirtualDisplay` (na Androidzie 14+ wymagana kolejność odwrotna) i nie łapał błędu startu usługi.
 - Tokeny przekazywane do podsumowań: `supabase` DDL/`json`, `SpotifyTools` przestał używać `runBlocking` (blokował wątki puli), `getInt("id")` na wierszach z bazy (liczby vs stringi) już nie rzuca wyjątku, literówki w komunikatach.
 
+**Druga runda (sesja, tryb ręczny, zapis danych):**
+
+- Rozmowa **wznawia się po zerwaniu sieci** i po `goAway` zamiast kończyć się w tym momencie: klient zapamiętuje uchwyt wznowienia (`sessionResumptionUpdate`), odrzuca zdarzenia ze starych gniazd (numer generacji) i ponawia połączenie maks. 3 razy z rosnącym odstępem — dopiero potem zamyka sesję z jasnym powodem. Przy okazji z setupu zniknęło pole `speechConfig.audioConfig` (Live API go nie zna → błąd 400), a limit 429 nie zabija już rozmowy.
+- Gesty w trybie ręcznym **meldowały sukces nawet wtedy, gdy system ich nie przyjął** (`dispatchGesture` zwraca wynik, którego nie sprawdzaliśmy). Teraz NIXI wie, kiedy klik się udał, a kiedy gest przerwano — i mówi to uczciwie.
+- Współrzędne w `screen_tap`/`screen_swipe`: liczby **0..100 w obu osiach** to procenty ekranu, wszystko inne to piksele (zasada jest w opisie narzędzi). Brak współrzędnych kończy się błędem, a nie kliknięciem w lewy górny róg.
+- **Przypomnienia i budziki w końcu zapisują się do bazy**: wysyłaliśmy `created_at` w milisekundach do kolumny `timestamptz`, więc PostgREST odrzucał insert. Datę ustawia teraz baza (`default now()`).
+- Po nagraniu nowego szablonu „Hej Nixi” tryb ECO/STANDARD **wracał do domyślnego**, ignorując wybór użytkownika — poprawione.
+- `WakeEngine` był przestawiany z wątku UI, a czytany przez wątek audio → dodana synchronizacja (zmiana ustawień w trakcie nasłuchu nie psuje już bufora klatek).
+- Zamknięcie okna rozmowy gestem „wstecz” **nie kończyło sesji** (mikrofon zostawał włączony) — teraz okno faktycznie zamykane kończy sesję i sprząta po sobie.
+- Kula animuje się na klatkach ekranu (płynniej na 120 Hz, mniej pracy w spoczynku), a powrót do aplikacji odświeża dane z Supabase **najwyżej raz na 15 s** (wcześniej każde wejście na zakładkę to były 3 zapytania).
+
 **UX na telefonie (Redmi Note 14 Pro 5G):**
 
 - Okno rozmowy dostało **insety** (status bar, wycięcie na aparat, pasek nawigacji) — kula przestała wchodzić pod dziurkę kamery, a przyciski pod pasek gestów.
@@ -70,7 +81,11 @@ Ta wersja nie dodaje nowych „modułów” — porządkuje i utwardza to, co ju
 Repozytorium zawiera workflow **`.github/workflows/build-apk.yml`**:
 
 1. Push na `main` (lub branch `arena/**`) → job uruchamia testy jednostkowe i buduje **`debug` i `release` APK**.
-2. Pliki pobierzesz w zakładce **Actions → wybrany run → artefakt `NIXI-APK-…`**.
+2. Pliki pobierzesz w zakładce **Actions → wybrany run → artefakt `NIXI-APK-…`**
+   (albo `gh run download <id> -n NIXI-APK-<sha> -D dist`).
+   **Do instalacji na telefonie użyj `app-debug.apk`** — jest podpisany kluczem
+   debug i instaluje się od razu. `app-release-unsigned.apk` z CI nie jest
+   podpisany (to plik „do podpisu” przed publikacją), więc instalator go odrzuci.
 3. Tag `v1.0.0` → auto **GitHub Release** z APK w plikach.
 
 Lokalnie (opcjonalnie):
@@ -134,6 +149,7 @@ powiadomienie o nasłuchu zniknęło — cofnij się do tabeli wyżej.
 | Objaw | Najczęstsza przyczyna | Co zrobić |
 |---|---|---|
 | „Hej Nixi” nie reaguje po zgaszeniu ekranu | ograniczenia baterii HyperOS | punkt 1 tabeli wyżej; sprawdź, czy widzisz powiadomienie „NIXI nasłuchuje” |
+| Rozmowa urywa się przy słabym zasięgu | przełączenie Wi-Fi/LTE albo `goAway` z serwera | NIXI wznawia połączenie sama (do 3 prób) i mówi o tym w logach; jeśli powtarza się co chwilę — sprawdź sieć |
 | Nasłuch gaśnie po kilku minutach | brak autostartu / force-stop | Autostart + nie „wymuszaj zatrzymania” NIXI |
 | Na ekranie głównym „Problem z mikrofonem” | mikrofon zajęty (rozmowa, dyktafon, inna asystentka) | poczekaj — NIXI spróbuje się podłączyć sama; zamknij aplikację trzymającą mikrofon |
 | Kula nie wyskakuje po „Hej Nixi” | brak „okien w tle”/pełnoekranowego wezwania | edytor uprawnień HyperOS + punkt 3 tabeli |
