@@ -114,7 +114,7 @@ object ReminderTools {
         } catch (t: Throwable) {
             ActionNotifier.notify(
                 ctx, "NIXI: przypomnienie",
-                "System nie pozwolił na dokładny alarm — przypomnienie „$title" może przyjść z opóźnieniem.",
+                "System nie pozwolił na dokładny alarm — przypomnienie „$title” może przyjść z opóźnieniem.",
                 short = true
             )
         }

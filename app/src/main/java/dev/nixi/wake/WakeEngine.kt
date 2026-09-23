@@ -325,7 +325,7 @@ object WakeEnroll {
         if (first < 0) return AttemptResult(emptyList(), false, "nie wykryto mowy — spróbuj głośniej")
         val kept = (max(0, first - 4)..min(frames.size - 1, last + 4))
             .mapNotNull { frames[it] }
-        if (kept.size < 20) return AttemptResult(emptyList(), false, "zbyt krótkie nagranie — powiedz „Hej Nixi"")
+        if (kept.size < 20) return AttemptResult(emptyList(), false, "zbyt krótkie nagranie — powiedz „Hej Nixi”")
         return AttemptResult(kept, true, "ok (${kept.size} klatek)")
     }
 
