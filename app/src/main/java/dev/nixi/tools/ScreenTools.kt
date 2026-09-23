@@ -60,14 +60,27 @@ object ScreenTools {
         )
     }
 
+    /**
+     * Model czasem podaje procenty (0..100) zamiast pikseli. Żeby nie było
+     * niejednoznaczności („50" = 50 px czy 50%?), procenty rozpoznajemy tylko
+     * wtedy, gdy OBJE współrzędne mieszczą się w 0..100 i ekran jest duży.
+     */
+    private fun toPx(v: Int, dim: Int, other: Int, otherDim: Int): Int {
+        val percent = v in 0..100 && other in 0..100 && dim > 1000 && otherDim > 1000
+        return if (percent) (v / 100f * dim).toInt().coerceIn(0, dim) else v.coerceIn(0, dim)
+    }
+
     fun tap(x: Int, y: Int): ToolResult {
         val (w, h) = ToolContext.screenWidthPx to ToolContext.screenHeightPx
         if (w <= 0 || h <= 0) {
             return ToolResult.fail("Nie znam rozdzielczości ekranu — najpierw screen_get.")
         }
-        // Model czasem podaje procenty (0..100) zamiast pikseli — rozpoznajemy oba.
-        val xPx = if (x in 0..100 && w > 1000) (x / 100f * w).toInt() else x.coerceIn(0, w)
-        val yPx = if (y in 0..100 && h > 1000) (y / 100f * h).toInt() else y.coerceIn(0, h)
+        if (x < 0 || y < 0) {
+            // brak współrzędnych w wywołaniu nie może kończyć się kliknięciem (0,0)
+            return ToolResult.fail("Brak współrzędnych — podaj x i y.")
+        }
+        val xPx = toPx(x, w, y, h)
+        val yPx = toPx(y, h, x, w)
         val ok = NixiAccessibilityService.instance?.tap(xPx.toFloat(), yPx.toFloat()) ?: false
         if (!ok) {
             return ToolResult.fail(
@@ -81,10 +94,20 @@ object ScreenTools {
     fun swipe(x1: Int, y1: Int, x2: Int, y2: Int, durationMs: Int): ToolResult {
         val svc = NixiAccessibilityService.instance
             ?: return ToolResult.fail("Brak sterowania (Accessibility wyłączony).")
-        val ok = svc.swipe(x1.toFloat(), y1.toFloat(), x2.toFloat(), y2.toFloat(),
+        if (x1 < 0 || y1 < 0 || x2 < 0 || y2 < 0) {
+            return ToolResult.fail("Brak współrzędnych — podaj x1, y1, x2, y2.")
+        }
+        val (w, h) = ToolContext.screenWidthPx to ToolContext.screenHeightPx
+        // te same zasady co w screen_tap: małe liczby = procenty
+        val ax = if (w > 0) toPx(x1, w, y1, h) else x1
+        val ay = if (h > 0) toPx(y1, h, x1, w) else y1
+        val bx = if (w > 0) toPx(x2, w, y2, h) else x2
+        val by = if (h > 0) toPx(y2, h, x2, w) else y2
+        val ok = svc.swipe(ax.toFloat(), ay.toFloat(), bx.toFloat(), by.toFloat(),
             durationMs.toLong().coerceIn(80, 1500))
-        LogBus.log("screen.swipe", "$x1,$y1 -> $x2,$y2")
-        return if (ok) ToolResult.ok("Przesunięto.") else ToolResult.fail("Gest nie przeszedł.")
+        LogBus.log("screen.swipe", "$ax,$ay -> $bx,$by")
+        return if (ok) ToolResult.ok("Przesunięto.")
+        else ToolResult.fail("Gest nie przeszedł (inny gest w trakcie albo brak usługi).")
     }
 
     fun type(text: String): ToolResult {

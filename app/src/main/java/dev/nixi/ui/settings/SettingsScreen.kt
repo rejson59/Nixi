@@ -276,7 +276,7 @@ fun SettingsScreen() {
                         LocalStore.supabaseUrl = sbUrl
                         LocalStore.supabaseKey = sbKey
                         SupabaseHub.rebuild()
-                        SupabaseHub.refreshAll()
+                        SupabaseHub.refreshAll(force = true)
                         sbStatus = "Zapisano i odświeżono odkrywanie tabel."
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = NixiPurple),
@@ -449,6 +449,7 @@ fun SettingsScreen() {
                 TextButton(onClick = {
                     LocalStore.clearAllData()
                     SupabaseHub.rebuild()
+                    SupabaseHub.refreshAll(force = true)
                     wipeConfirm = false
                 }) { Text("Usuń", color = NixiWarn) }
             },

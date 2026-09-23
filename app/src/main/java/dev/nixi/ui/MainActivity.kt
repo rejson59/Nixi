@@ -113,7 +113,7 @@ fun Root() {
             onFinish = {
                 LocalStore.onboarded = true
                 SupabaseHub.rebuild()
-                SupabaseHub.refreshAll()
+                SupabaseHub.refreshAll(force = true)
                 if (LocalStore.wakeEnabled) WakeWordService.start(appCtx)
                 onboarded = true
             }

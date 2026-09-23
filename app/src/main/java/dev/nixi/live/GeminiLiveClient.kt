@@ -59,7 +59,37 @@ class GeminiLiveClient(
     @Volatile var closedByUs = false
         private set
 
+    /**
+     * Numer generacji gniazda. Po wznowieniu sesji stare gniazdo jeszcze przez
+     * chwilę woła onFailure/onClosed — bez tej bariery odbieralibyśmy je jako
+     * "świeży" błąd i wpadli w podwójne reconnecty.
+     */
+    @Volatile private var socketGen = 0
+
+    /** Uchwyt wznowienia sesji (sessionResumptionUpdate.newHandle). */
+    @Volatile var resumptionHandle: String? = null
+        private set
+
+    /** Ile czasu serwer daje na wznowienie (goAway.timeLeft, ms). */
+    @Volatile var goAwayMillis: Long = 0
+        private set
+
+    /** Ile razy łączyliśmy się w ramach tej sesji (diagnostyka). */
+    @Volatile var connectCount = 0
+        private set
+
+    /** Wznawia połączenie (np. po goAway albo zerwaniu sieci). */
+    fun reconnect(setup: JSONObject) {
+        closedByUs = false
+        open.set(false)
+        runCatching { ws?.cancel() }
+        ws = null
+        connect(setup)
+    }
+
     fun connect(setup: JSONObject) {
+        val myGen = ++socketGen
+        connectCount++
         val url = "wss://generativelanguage.googleapis.com/ws/google.ai." +
             "generativelanguage.v1beta.GenerativeService.BidiGenerateContent" +
             "?key=${java.net.URLEncoder.encode(apiKey, "UTF-8")}"
@@ -83,11 +113,13 @@ class GeminiLiveClient(
                 }
 
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                    if (myGen != socketGen) return // stare gniazdo — ignoruj
                     open.set(false)
                     listener.onClosed(code, reason)
                 }
 
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                    if (myGen != socketGen) return // stare gniazdo — ignoruj
                     open.set(false)
                     val code = response?.code ?: -1
                     LogBus.log("live.ws", "failure: ${t.message}", "error")
@@ -112,7 +144,19 @@ class GeminiLiveClient(
             listener.onSetupComplete()
             return
         }
+        val sru = msg.optJSONObject("sessionResumptionUpdate")
+        if (sru != null) {
+            if (sru.optBoolean("resumable", true)) {
+                val h = sru.optString("newHandle", "")
+                if (h.isNotBlank()) {
+                    resumptionHandle = h
+                    LogBus.log("live.resume", "mam uchwyt wznowienia")
+                }
+            }
+            return
+        }
         if (msg.has("goAway")) {
+            goAwayMillis = msg.optJSONObject("goAway")?.optLong("timeLeft", 0) ?: 0
             listener.onGoAway()
             return
         }

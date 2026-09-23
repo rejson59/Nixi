@@ -53,6 +53,9 @@ class LiveSessionService : Service() {
         const val EXTRA_REASON = "reason"
         const val ACTION_STOP = "dev.nixi.live.STOP"
 
+        /** Ile razy wznawiamy połączenie, zanim zakończymy sesję. */
+        private const val MAX_RECONNECTS = 3
+
         @Volatile var running = false
             private set
 
@@ -131,6 +134,9 @@ class LiveSessionService : Service() {
     @Volatile private var lastUserActivity = 0L
     @Volatile private var throttled = false
     @Volatile private var trigger = "button"
+    @Volatile private var promptText = ""
+    @Volatile private var reconnectAttempts = 0
+    private var reconnectJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -234,15 +240,20 @@ class LiveSessionService : Service() {
             val prompt = withTimeoutOrNull(6000) { SystemPromptBuilder.build(w, h) }
                 ?: "Jesteś NIXI, osobistą asystentką. Mów po polsku, zwięźle."
             if (ended.get()) return@launch
-            val setup = buildSetup(prompt)
-            c.connect(setup)
+            promptText = prompt
+            connectSession()
             streamAudio()
             idleWatcher()
             tpmWatcher()
         }
     }
 
-    private fun buildSetup(prompt: String): JSONObject {
+    /**
+     * Sesja Live bez wznowienia żyje ~10 min i nie przeżywa zerwania sieci.
+     * `sessionResumption` + uchwyt z poprzedniego połączenia pozwalają
+     * kontynuować rozmowę (kontekst zostaje po stronie serwera).
+     */
+    private fun buildSetup(prompt: String, handle: String? = null): JSONObject {
         val setup = JSONObject()
             .put("model", "models/${LocalStore.geminiModel}")
             .put("responseModalities", JSONArray().put("AUDIO"))
@@ -261,16 +272,16 @@ class LiveSessionService : Service() {
                         JSONObject().put("voiceName", LocalStore.voiceName.ifBlank { "Puck" })
                     )
                 )
-                .put(
-                    "audioConfig",
-                    JSONObject()
-                        .put("audioEncoding", "LINEAR16")
-                        .put("sampleRateHertz", 24000)
-                )
         )
+        // Uwaga: w speechConfig NIE ma pola audioConfig — Live API zawsze
+        // zwraca PCM 24 kHz LINEAR16, a nieznane pole kończyło się błędem 400.
         // tekst rozmowy (user/nixi) do podsumowań i pamięci — serwer wysyła tylko po włączeniu
         setup.put("inputAudioTranscription", JSONObject())
         setup.put("outputAudioTranscription", JSONObject())
+        setup.put(
+            "sessionResumption",
+            JSONObject().apply { if (!handle.isNullOrBlank()) put("handle", handle) }
+        )
         setup.put(
             "realtimeInputConfig",
             JSONObject().put(
@@ -281,6 +292,40 @@ class LiveSessionService : Service() {
             )
         )
         return JSONObject().put("setup", setup)
+    }
+
+    /** Pierwsze połączenie i każde kolejne wznowienie idą tą samą drogą. */
+    private fun connectSession() {
+        val c = client ?: return
+        val handle = c.resumptionHandle
+        if (handle.isNullOrBlank()) c.connect(buildSetup(promptText))
+        else c.reconnect(buildSetup(promptText, handle))
+    }
+
+    /**
+     * Zaplanuj wznowienie po zerwaniu sieci / goAway. Ograniczone do
+     * [MAX_RECONNECTS] prób z rosnącym odstępem; po ich wyczerpaniu kończymy
+     * sesję z jasnym powodem (użytkownik nie zostaje z martwym mikrofonem).
+     */
+    private fun scheduleReconnect(why: String) {
+        if (ended.get()) return
+        if (reconnectJob?.isActive == true) return
+        if (reconnectAttempts >= MAX_RECONNECTS) {
+            LogBus.log("live.reconnect", "koniec prób ($why)", "error")
+            endSession("brak połączenia z Gemini ($why)")
+            return
+        }
+        reconnectAttempts++
+        val waitMs = if (why == "goAway") 400L else 1500L * reconnectAttempts
+        LogBus.log("live.reconnect", "próba $reconnectAttempts/$MAX_RECONNECTS za ${waitMs} ms ($why)", "warn")
+        NixiState.orbState.value = NixiState.OrbState.THINKING
+        NixiState.emit(NixiState.NixiEvent.ErrorHappened("live", "wznawiam połączenie ($why)"))
+        reconnectJob = scope.launch {
+            delay(waitMs)
+            if (ended.get()) return@launch
+            if (client?.isOpen() == true) return@launch
+            connectSession()
+        }
     }
 
     /** Strumień mikrofonu do Live API (z TpmGuard i barge-in). */
@@ -382,7 +427,9 @@ class LiveSessionService : Service() {
 
     private val listener = object : GeminiLiveClient.Listener {
         override fun onSetupComplete() {
-            LogBus.log("live.setup", "sesja gotowa (trigger=$trigger)")
+            reconnectAttempts = 0
+            reconnectJob?.cancel()
+            LogBus.log("live.setup", "sesja gotowa (trigger=$trigger, połączenie #${client?.connectCount ?: 1})")
             NixiState.orbState.value = NixiState.OrbState.LISTENING
             if (LocalStore.dingEnabled) playDing(dev.nixi.R.raw.ding_start)
         }
@@ -432,8 +479,9 @@ class LiveSessionService : Service() {
         }
 
         override fun onGoAway() {
-            LogBus.log("live.goaway", "serwer kończy sesję")
-            endSession("serwer zakończył sesję")
+            val left = client?.goAwayMillis ?: 0
+            LogBus.log("live.goaway", "serwer kończy sesję (timeLeft=${left} ms) — wznawiam", "warn")
+            scheduleReconnect("goAway")
         }
 
         override fun onSessionEnd() {
@@ -442,26 +490,36 @@ class LiveSessionService : Service() {
 
         override fun onApiError(code: Int, message: String) {
             LogBus.log("live.error", "code=$code $message", "error")
-            if (code == 429) {
-                tpm.noteRateLimit()
-                publishTpm()
-                ActionNotifier.notify(
-                    this@LiveSessionService, "NIXI: limit tokenów",
-                    "Zbyt wiele tokenów na minutę (limit darmowego planu). Odczekaj ~60 s i spróbuj ponownie.",
-                    short = false
-                )
-            } else if (code == 400 || code == 401 || code == 403) {
-                ActionNotifier.notify(
-                    this@LiveSessionService, "NIXI: błąd API",
-                    "Gemini Live: ${message.take(200)}. Sprawdź klucz/model w Ustawieniach.",
-                    short = false
-                )
+            when {
+                // limit tempa: nie zabijamy rozmowy — TpmGuard wstrzyma nadawanie
+                code == 429 -> {
+                    tpm.noteRateLimit()
+                    publishTpm()
+                    ActionNotifier.notify(
+                        this@LiveSessionService, "NIXI: limit tokenów",
+                        "Zbyt wiele tokenów na minutę (limit darmowego planu). Robię krótką przerwę.",
+                        short = true
+                    )
+                    scheduleReconnect("429")
+                }
+                // zły klucz / model — ponawianie nic nie da
+                code == 400 || code == 401 || code == 403 -> {
+                    ActionNotifier.notify(
+                        this@LiveSessionService, "NIXI: błąd API",
+                        "Gemini Live: ${message.take(200)}. Sprawdź klucz/model w Ustawieniach.",
+                        short = false
+                    )
+                    endSession("błąd API $code")
+                }
+                else -> scheduleReconnect("błąd $code")
             }
-            endSession("błąd API $code")
         }
 
         override fun onClosed(code: Int, reason: String) {
-            if (!ended.get()) endSession("zamknięto ($code ${reason.take(60)})")
+            if (ended.get()) return
+            // nasze własne zamknięcie (koniec sesji) — nic nie rób
+            if (client?.closedByUs == true) return
+            scheduleReconnect("zamknięto $code")
         }
     }
 

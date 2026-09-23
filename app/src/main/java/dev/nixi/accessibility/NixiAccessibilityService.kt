@@ -43,9 +43,11 @@ class NixiAccessibilityService : AccessibilityService() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    /** Zwraca true, gdy gest został wykonany. */
+    /** Jedna gest naraz — w tym samym momencie nie da się wysłać dwóch. */
+    @Volatile private var gestureBusy = false
+
+    /** Zwraca true, gdy gest został przyjęty do wykonania. */
     fun tap(xPx: Float, yPx: Float): Boolean {
-        val svc = instance ?: return false
         val path = Path().apply {
             moveTo(xPx, yPx)
             lineTo(xPx + 0.1f, yPx + 0.1f)
@@ -87,18 +89,30 @@ class NixiAccessibilityService : AccessibilityService() {
 
     private fun gesture(stroke: GestureDescription.StrokeDescription, name: String): Boolean {
         val svc = instance ?: return false
-        val desc = GestureDescription.Builder().addStroke(stroke).build()
-        var ok = false
-        svc.dispatchGesture(desc, object : GestureResultCallback() {
-            override fun onCompleted(gestureDescription: GestureDescription?) {
-                ok = true
-            }
+        if (gestureBusy || !svc.dispatchGesture(
+                GestureDescription.Builder().addStroke(stroke).build(),
+                object : GestureResultCallback() {
+                    override fun onCompleted(gestureDescription: GestureDescription?) {
+                        gestureBusy = false
+                        LogBus.log("accessibility.gesture", "$name: wykonano")
+                    }
 
-            override fun onCancelled(gestureDescription: GestureDescription?) {
-                ok = false
-            }
-        }, mainHandler)
-        // dispatchGesture nie ma synchronicznego wynik; dajemy krótki budżet
+                    override fun onCancelled(gestureDescription: GestureDescription?) {
+                        gestureBusy = false
+                        // np. użytkownik dotknął ekranu w trakcie gestu
+                        LogBus.log("accessibility.gesture", "$name: przerwano", "warn")
+                    }
+                },
+                mainHandler
+            )
+        ) {
+            return false
+        }
+        // dispatchGesture() zwraca false, gdy usługa nie może przyjąć gestu
+        // (np. trwa inny gest) — wcześniej zwracaliśmy tu zawsze true, więc
+        // model dostawał potwierdzenie nawet, gdy nic się nie stało.
+        gestureBusy = true
+        mainHandler.postDelayed({ gestureBusy = false }, 2000)
         return true
     }
 }

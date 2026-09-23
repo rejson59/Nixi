@@ -113,7 +113,7 @@ fun TablesScreen() {
                 OutlinedButton(onClick = {
                     scope.launch {
                         if (SupabaseHub.available) {
-                            SupabaseHub.refreshAll()
+                            SupabaseHub.refreshAll(force = true)
                         }
                     }
                 }) { Text("Odkryj ponownie", color = NixiPurple, fontSize = 12.sp) }

@@ -270,8 +270,11 @@ object SupabaseHub {
 
     suspend fun saveRule(rule: JSONObject) {
         if (!available) return
-        if (rule.has("id")) {
-            c().update(Tables.RULES, mapOf("id" to "eq.${rule.getInt("id")}"), rule)
+        val idValue = rule.opt("id")
+        // id bywa liczbą albo łańcuchem (zależnie od tego, jak powstał wiersz)
+        val hasId = idValue != null && idValue.toString().isNotBlank() && idValue.toString() != "null"
+        if (hasId) {
+            c().update(Tables.RULES, mapOf("id" to "eq.$idValue"), rule)
         } else {
             c().insert(Tables.RULES, rule)
         }
