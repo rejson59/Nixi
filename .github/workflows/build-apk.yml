@@ -7,6 +7,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build APK (debug + release)
@@ -29,9 +32,26 @@ jobs:
           cache-read-only: false
 
       - name: Build APKs
-        run: gradle --no-daemon --stacktrace assembleDebug assembleRelease
+        id: build
+        continue-on-error: true
+        run: gradle --no-daemon --stacktrace assembleDebug assembleRelease 2>&1 | tee gradle-output.log
+
+      # Tymczasowy krok diagnostyczny: przy bledzie zapisuje log w repo,
+      # zeby mozna go bylo przeczytac z zewnatrz (bez pobierania artefaktow).
+      - name: Publish build log on failure
+        if: steps.build.outcome == 'failure'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout "${{ github.ref_name }}"
+          mkdir -p ci
+          tail -c 400000 gradle-output.log > ci/build-log.txt
+          git add ci/build-log.txt
+          git commit -m "ci: log z budowania [skip ci]"
+          git push origin "${{ github.ref_name }}" || (git pull --rebase origin "${{ github.ref_name }}" && git push origin "${{ github.ref_name }}")
 
       - name: Upload APK artifacts
+        if: steps.build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: NIXI-APK-${{ github.sha }}
@@ -39,6 +59,10 @@ jobs:
             app/build/outputs/apk/debug/*.apk
             app/build/outputs/apk/release/*.apk
           if-no-files-found: error
+
+      - name: Report build status
+        if: always()
+        run: test "${{ steps.build.outcome }}" = "success"
 
   # Auto-release z tagiem v* (np. git tag v1.0.0 && git push --tags)
   release:
