@@ -38,10 +38,20 @@ class ReminderSchedulerTest {
         assertNull(ReminderScheduler.parseIso("kiedyś"))
     }
 
+    // Uwaga: nie testujemy tu org.json — w testach JVM to zaślepka z android.jar
+    // (isReturnDefaultValues), więc sprawdzamy tylko wejściowe formaty daty.
     @Test
-    fun `wiersz przypomnienia ma poprawny format`() {
-        val row = ReminderScheduler.reminderRow(0L, "test")
-        assertEquals("test", row.optString("title"))
-        assertNotNull(ReminderScheduler.parseIso(row.optString("fires_at")))
+    fun `format daty zapisywany do bazy da sie odczytac`() {
+        val stored = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
+            .format(java.util.Date(1_800_000_000_000L))
+        assertNotNull(ReminderScheduler.parseIso(stored))
+    }
+
+    @Test
+    fun `warianty iso z bazy supabase`() {
+        assertNotNull(ReminderScheduler.parseIso("2026-09-25T15:30"))
+        assertNotNull(ReminderScheduler.parseIso("2026-09-25T15:30:15"))
+        assertNotNull(ReminderScheduler.parseIso("2026-09-25T15:30:15+00:00"))
+        assertNotNull(ReminderScheduler.parseIso("2026-09-25T15:30:15.123Z"))
     }
 }
