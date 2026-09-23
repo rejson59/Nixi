@@ -173,7 +173,7 @@ object ActionNotifier {
     }
 
     /** Powiadomienie przypomnienia (wysoka ważność, dźwięk). */
-    fun reminder(context: Context, id: Long, title: String, text: String) {
+    fun reminder(context: Context, id: Int, title: String, text: String) {
         ensureChannels()
         val builder = Notification.Builder(context, CH_REMINDER)
             .setSmallIcon(android.R.drawable.stat_notify_chat)
@@ -182,6 +182,6 @@ object ActionNotifier {
             .setAutoCancel(true)
             .setCategory(Notification.CATEGORY_REMINDER)
             .setContentIntent(contentIntent(context))
-        runCatching { nm.notify(id.toInt(), builder.build()) }
+        runCatching { nm.notify(id, builder.build()) }
     }
 }
