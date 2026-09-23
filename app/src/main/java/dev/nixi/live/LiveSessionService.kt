@@ -56,6 +56,16 @@ class LiveSessionService : Service() {
 
         fun start(context: Context, trigger: String) {
             if (running) return
+            if (context.checkSelfPermission("android.permission.RECORD_AUDIO")
+                != android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) {
+                ActionNotifier.notify(
+                    context, "NIXI: mikrofon",
+                    "Brak uprawnienia mikrofonu — sesja głosowa nie może ruszyć.",
+                    short = false
+                )
+                return
+            }
             val intent = Intent(context, LiveSessionService::class.java)
                 .putExtra(EXTRA_TRIGGER, trigger)
             context.startForegroundService(intent)
@@ -165,12 +175,15 @@ class LiveSessionService : Service() {
                         .put("sampleRateHertz", 24000)
                 )
         )
+        // tekst rozmowy (user/nixi) do podsumowań i pamięci — serwer wysyła tylko po włączeniu
+        setup.put("inputAudioTranscription", JSONObject())
+        setup.put("outputAudioTranscription", JSONObject())
         setup.put(
             "realtimeInputConfig",
             JSONObject().put(
                 "automaticActivityDetection",
                 JSONObject()
-                    .put("endOfActivityAudioMs", 900)
+                    .put("silenceDurationMs", 900)
                     .put("prefixPaddingMs", 300)
             )
         )

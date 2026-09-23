@@ -21,6 +21,12 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
 
+    <!-- Otwieranie aplikacji po nazwie — listowanie pakietów z etykietami (Android 11+) -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+
+    <!-- Pełnoekranowe okno rozmowy po "Hej Nixi" nad blokadką (Android 14) -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+
     <!-- Wznawianie nasłuchu po restarcie telefonu -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 

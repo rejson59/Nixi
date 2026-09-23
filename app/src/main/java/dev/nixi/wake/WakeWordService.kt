@@ -99,7 +99,9 @@ class WakeWordService : Service() {
             // 3) okno z kulą — nad wszystkim, także nad blokadką
             val intent = Intent(this@WakeWordService, ConversationActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            startActivity(intent)
+            // Android 10+ blokuje startActivity z tła; fullScreenIntent na powiadomieniu to legalna scieżka.
+            runCatching { startActivity(intent) }
+            ActionNotifier.wakeFullscreen(this@WakeWordService)
             ActionNotifier.notify(
                 this@WakeWordService, "NIXI aktywowana",
                 "Multimedia wstrzymane. Mów, w czym mogę pomóc.",
@@ -125,15 +127,21 @@ class WakeWordService : Service() {
     }
 
     private fun startForegroundCompat() {
-        val notif = ActionNotifier.fgsNotification(
-            "NIXI nasłuchuje", "„Hej Nixi” — offline, niskie zużycie", NOTIF_ID
-        )
-        if (android.os.Build.VERSION.SDK_INT >= 29) {
-            startForeground(
-                NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+        try {
+            val notif = ActionNotifier.fgsNotification(
+                "NIXI nasłuchuje", "„Hej Nixi” — offline, niskie zużycie", NOTIF_ID
             )
-        } else {
-            startForeground(NOTIF_ID, notif)
+            if (android.os.Build.VERSION.SDK_INT >= 29) {
+                startForeground(
+                    NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                )
+            } else {
+                startForeground(NOTIF_ID, notif)
+            }
+        } catch (t: Throwable) {
+            // Np. start usługi z BOOT_COMPLETED na Androidzie 14+ — mikrofon tylko „while in use”.
+            LogBus.log("wake.fgs", "startForeground nieudany: ${t.message}", "warn")
+            stopSelf()
         }
     }
 

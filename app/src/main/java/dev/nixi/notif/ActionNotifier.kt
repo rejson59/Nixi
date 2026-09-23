@@ -20,6 +20,7 @@ object ActionNotifier {
     const val CH_SESSION = "nixi_session"
     const val CH_REMINDER = "nixi_reminder"
     const val CH_ERROR = "nixi_errors"
+    const val CH_WAKE = "nixi_wake"
 
     private lateinit var nm: NotificationManager
     private val channelsReady = AtomicBoolean(false)
@@ -54,6 +55,13 @@ object ActionNotifier {
                     NotificationChannel(CH_ERROR, "Błędy NIXI", NotificationManager.IMPORTANCE_LOW)
                         .apply {
                             description = "Dla celów ulepszania aplikacji"
+                            setShowBadge(false)
+                        }
+                )
+                nm.createNotificationChannel(
+                    NotificationChannel(CH_WAKE, "Wezwanie NIXI", NotificationManager.IMPORTANCE_HIGH)
+                        .apply {
+                            description = "Pełnoekranowe okno rozmowy po „Hej Nixi”"
                             setShowBadge(false)
                         }
                 )
@@ -106,6 +114,31 @@ object ActionNotifier {
             .setContentIntent(contentIntent(context))
             .setCategory(Notification.CATEGORY_SERVICE)
             .build()
+    }
+
+    /**
+     * Pełnoekranowe wezwanie okna rozmowy — legalny sposób pokazania aktywności
+     * z tła (nawet nad ekranem blokady). Bez uprawnienia FSI zostaje heads-up.
+     */
+    fun wakeFullscreen(context: Context) {
+        ensureChannels()
+        val intent = Intent(context, dev.nixi.overlay.ConversationActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val pi = PendingIntent.getActivity(
+            context, 77, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val n = Notification.Builder(context, CH_WAKE)
+            .setSmallIcon(android.R.drawable.stat_notify_chat)
+            .setContentTitle("NIXI słucha")
+            .setContentText("Dotknij, aby otworzyć rozmowę")
+            .setContentIntent(pi)
+            .setFullScreenIntent(pi, true)
+            .setAutoCancel(true)
+            .setCategory(Notification.CATEGORY_CALL)
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .build()
+        runCatching { nm.notify(7001, n) }
     }
 
     /** Powiadomienie przypomnienia (wysoka ważność, dźwięk). */

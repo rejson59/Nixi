@@ -118,8 +118,7 @@ class GeminiLiveClient(
         val err = msg.optJSONObject("error")
         if (err != null) {
             val code = err.optInt("code", 0)
-            val status = if (code == 429 || code == 403) code else 0
-            listener.onApiError(status, err.optString("message", "unknown error"))
+            listener.onApiError(code, err.optString("message", "unknown error"))
             return
         }
 
