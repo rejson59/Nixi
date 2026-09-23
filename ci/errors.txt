@@ -1,3 +1,0 @@
-e: file:///home/runner/work/Nixi/Nixi/app/src/main/java/dev/nixi/db/PostgrestClient.kt:63:38 'fun get(url: String): HttpUrl' is deprecated. moved to extension function.
-e: file:///home/runner/work/Nixi/Nixi/app/src/main/java/dev/nixi/live/PostSessionMemory.kt:50:26 Argument type mismatch: actual type is 'kotlin.coroutines.SuspendFunction0<kotlin.Unit>', but 'kotlin.coroutines.CoroutineContext' was expected.
-e: file:///home/runner/work/Nixi/Nixi/app/src/main/java/dev/nixi/live/PostSessionMemory.kt:50:26 No value passed for parameter 'block'.
