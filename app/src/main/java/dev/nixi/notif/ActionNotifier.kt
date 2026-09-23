@@ -112,7 +112,7 @@ object ActionNotifier {
     fun reminder(context: Context, id: Long, title: String, text: String) {
         ensureChannels()
         val builder = Notification.Builder(context, CH_REMINDER)
-            .setSmallIcon(android.R.drawable.presence_chat_availability_online)
+            .setSmallIcon(android.R.drawable.stat_notify_chat)
             .setContentTitle(title)
             .setContentText(text)
             .setAutoCancel(true)

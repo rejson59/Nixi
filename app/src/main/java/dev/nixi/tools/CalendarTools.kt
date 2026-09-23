@@ -30,10 +30,11 @@ object CalendarTools {
                 val parsed = TimeUtils.parseFlexible(range) ?: return ToolResult.fail(
                     "Nie rozumiem zakresu „$range” (użyj: dziś, jutro, tydzień, 2026-09-25)."
                 )
-                parsed to (TimeUtils.parseFlexible(
-                    java.util.Date(java.text.SimpleDateFormat(
-                        "yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US
-                    ).parse(parsed)!!.time + 86_400_000L) ?: parsed) ?: parsed)
+                run {
+                    val f2 = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
+                    val endMillis = f2.parse(parsed)!!.time + 86_400_000L
+                    parsed to f2.format(java.util.Date(endMillis))
+                }
             }
         }
         val events = SupabaseHub.calendarEventsBetween(t0, t1)

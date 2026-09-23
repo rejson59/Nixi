@@ -38,12 +38,6 @@ class ScreenCaptureService : Service() {
         fun isRunning(): Boolean = instance != null
 
         fun start(ctx: android.content.Context, resultCode: Int, data: Intent) {
-            if (ctx.checkSelfPermission(android.Manifest.permission.MEDIA_PROJECTION)
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                // uprawnienie "grant" przychodzi z consentem; bez niego MediaProjection nie ruszy
-                LogBus.log("screen.start", "brak grantu MediaProjection", "warn")
-            }
             val intent = Intent(ctx, ScreenCaptureService::class.java)
                 .putExtra(EXTRA_RESULT_CODE, resultCode)
                 .putExtra(EXTRA_DATA, data)
@@ -132,7 +126,7 @@ class ScreenCaptureService : Service() {
             val rowPadding = rowStride - pixelStride * w
             val bmpFull = Bitmap.createBitmap(w + rowPadding / pixelStride, h, Bitmap.Config.ARGB_8888)
             bmpFull.copyPixelsFromBuffer(buffer)
-            val bmp = if (rowPadding > 0) bmpFull.copy(0, 0, w, h) else bmpFull
+            val bmp = if (rowPadding > 0) Bitmap.createBitmap(bmpFull, 0, 0, w, h) else bmpFull
             var out = bmp
             if (w > maxWidth) {
                 val ratio = maxWidth / w.toFloat()

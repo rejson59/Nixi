@@ -39,11 +39,13 @@ class PostgrestClient(private val projectUrl: String, private val key: String) {
 
     private fun base(): String = projectUrl.trimEnd('/') + "/rest/v1"
 
-    private fun headers(prefer: String? = null): Map<String, String> = buildMap {
-        put("apikey", key)
-        put("Authorization", "Bearer $key")
-        put("Accept", "application/json")
-        if (prefer != null) put("Prefer", prefer)
+    private fun headers(prefer: String? = null): okhttp3.Headers {
+        val b = okhttp3.Headers.Builder()
+        b.add("apikey", key)
+        b.add("Authorization", "Bearer $key")
+        b.add("Accept", "application/json")
+        if (prefer != null) b.add("Prefer", prefer)
+        return b.build()
     }
 
     /**
@@ -58,10 +60,9 @@ class PostgrestClient(private val projectUrl: String, private val key: String) {
         prefer: String? = null,
     ): Result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         try {
-            val url = java.net.HttpUrl.parse(base() + path)!!
-                .newBuilder()
-                .apply { for ((k, v) in query) addQueryParameter(k, v) }
-                .build()
+            val ub = okhttp3.HttpUrl.get(base() + path).newBuilder()
+            for ((k, v) in query) ub.addQueryParameter(k, v)
+            val url = ub.build()
             val bodyBytes: okhttp3.RequestBody? = when {
                 body != null -> body.toString().toRequestBody(jsonType)
                 method == "DELETE" || method == "PATCH" ->
@@ -191,7 +192,7 @@ class PostgrestClient(private val projectUrl: String, private val key: String) {
                 }
             }
             val result = Result(true, 200, emptyList(), openapi, null, null)
-            DiscoveredTables.value = names.map { (n, cols) -> TableMeta(n, cols) }
+            DiscoveredTables.value.value = names.map { (n, cols) -> TableMeta(n, cols) }
             return@withContext result
         } catch (t: Throwable) {
             Result(false, -1, emptyList(), null, t.message ?: "discover failed", null)

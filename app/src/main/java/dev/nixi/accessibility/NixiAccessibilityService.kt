@@ -63,13 +63,7 @@ class NixiAccessibilityService : AccessibilityService() {
 
     fun global(action: Int): Boolean {
         val svc = instance ?: return false
-        val latch = CountDownLatch(1)
-        var ok = false
-        svc.performGlobalAction(action) { success ->
-            ok = success
-            latch.countDown()
-        }
-        return latch.await(2, TimeUnit.SECONDS) || ok
+        return svc.performGlobalAction(action)
     }
 
     fun typeText(text: String): Boolean {

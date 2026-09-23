@@ -7,6 +7,7 @@ import dev.nixi.notif.ActionNotifier
 import dev.nixi.store.LocalStore
 import dev.nixi.util.LogBus
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.MediaType.Companion.toMediaType

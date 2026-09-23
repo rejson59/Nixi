@@ -47,7 +47,7 @@ class AudioPlayer {
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
         try {
-            t.setSpeed(LocalStore.playRate)
+            t.playbackParams = android.media.PlaybackParams().setSpeed(LocalStore.playRate)
         } catch (_: Exception) {
         }
         t.setVolume(LocalStore.outputVolume)
@@ -115,6 +115,6 @@ class AudioPlayer {
             i += 2
         }
         val count = (bytes.size / 2).coerceAtLeast(1)
-        return sqrt(sum / count) / 32768f * 5f
+        return (sqrt(sum.toDouble() / count) / 32768.0 * 5.0).toFloat()
     }
 }

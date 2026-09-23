@@ -77,7 +77,7 @@ fun NixiOrb(
     }
 
     Canvas(modifier = modifier.size(size)) {
-        val c = size
+        val c = this.size
         val cx = c.width / 2f
         val cy = c.height / 2f
         val r = minOf(c.width, c.height) / 2f * scale * 0.62f

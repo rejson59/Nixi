@@ -1,5 +1,6 @@
 package dev.nixi.tools
 
+import android.service.notification.StatusBarNotification
 import dev.nixi.notif.NixiNotificationListener
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -16,10 +17,11 @@ object NotificationTools {
             )
         }
         return try {
-            val active = listener.activeNotifications.orEmpty()
+            val raw: Array<StatusBarNotification>? = listener.getActiveNotifications()
+            val active = raw ?: emptyArray()
             val fmt = SimpleDateFormat("HH:mm", Locale("pl"))
-            val filtered = active.asReversed()
-                .filter { appFilter.isBlank() || it.packageName.lowercase().contains(appFilter.lowercase()) }
+            val filtered = active.toList().asReversed()
+                .filter { s -> appFilter.isBlank() || s.packageName.lowercase().contains(appFilter.lowercase()) }
                 .take(limit.coerceIn(1, 30))
             if (filtered.isEmpty()) {
                 ToolResult.ok("Brak nowych powiadomień${if (appFilter.isNotBlank()) " z $appFilter" else ""}.")

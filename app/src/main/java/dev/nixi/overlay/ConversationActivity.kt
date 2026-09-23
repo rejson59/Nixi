@@ -32,7 +32,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.NorthEast
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Home
@@ -62,7 +61,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.media.MediaProjectionManager
+import android.media.projection.MediaProjectionManager
 import androidx.core.view.WindowCompat
 import dev.nixi.NixiState
 import dev.nixi.R
@@ -91,7 +90,7 @@ class ConversationActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        showWhenLocked(true)
+        setShowWhenLocked(true)
         setTurnScreenOn(true)
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
@@ -266,9 +265,9 @@ fun ConversationUi(
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         TextButton(onClick = {
-                            android.content.ClipboardManagerCompat.set(
-                                context, pendingSql
-                            )
+                            val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                                as android.content.ClipboardManager
+                            cm.setPrimaryClip(android.content.ClipData.newPlainText("nixi-sql", pendingSql))
                         }) {
                             Icon(Icons.Filled.ContentCopy, null, tint = NixiPurple)
                             Spacer(Modifier.width(6.dp))

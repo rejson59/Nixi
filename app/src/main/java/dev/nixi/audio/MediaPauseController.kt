@@ -1,8 +1,8 @@
 package dev.nixi.audio
 
 import android.content.Context
-import android.media.MediaController
-import android.media.MediaSessionManager
+import android.media.session.MediaController
+import android.media.session.MediaSessionManager
 import dev.nixi.util.LogBus
 import java.util.concurrent.TimeUnit
 
@@ -35,20 +35,15 @@ object MediaPauseController {
             for (s in sessions) {
                 if (s.packageName == context().packageName) continue
                 try {
-                    val c = MediaController(s)
-                    val ok = if (android.os.Build.VERSION.SDK_INT >= 29) {
-                        c.connect(400, TimeUnit.MILLISECONDS)
-                    } else {
-                        c.connect()
-                    }
-                    if (ok) {
-                        val state = c.playbackState?.state
-                        if (state != MediaController.PLAYBACK_STATE_STOPPED) {
-                            c.pause()
-                            synchronized(lock) { pausedControllers.add(c) }
-                            n++
-                            LogBus.log("media.pause", s.packageName)
-                        }
+                    val state = s.playbackState?.state
+                    if (state != null &&
+                        state != android.media.session.PlaybackState.STATE_PAUSED &&
+                        state != android.media.session.PlaybackState.STATE_STOPPED
+                    ) {
+                        s.transportControls.pause()
+                        synchronized(lock) { pausedControllers.add(s) }
+                        n++
+                        LogBus.log("media.pause", s.packageName)
                     }
                 } catch (t: Throwable) {
                     LogBus.log("media.pause.err", t.message ?: "?", "warn")
@@ -67,32 +62,14 @@ object MediaPauseController {
      * Sesje innych aplikacji. API 34+: system ogranicza widoczność,
      * więc pytamy o popularne pakiety multimedialne osobno.
      */
-    @Suppress("DEPRECATION")
-    private fun activeSessionsCrossApp(): List<MediaSessionManager.ActiveSessions> {
-        val list = mutableListOf<MediaSessionManager.ActiveSessions>()
-        if (android.os.Build.VERSION.SDK_INT >= 34) {
-            val mediaPackages = listOf(
-                "com.spotify.music",
-                "com.google.android.apps.youtube.music",
-                "com.google.android.apps.youtube.music.beta",
-                "com.google.android.apps.youtube.podcasts",
-                "com.soundcloud.android",
-                "com.google.android.apps.podcasts",
-                "org.videolan.vlc",
-                "com.pocketcasts.android",
-                "com.tunein.player",
-            )
-            for (pkg in mediaPackages) {
-                try {
-                    val sessions = mms.getActiveSessions(android.content.pm.PackageIdentifier(pkg, 0))
-                    list.addAll(sessions)
-                } catch (_: Throwable) {
-                }
-            }
-        } else {
-            list.addAll(mms.activeSessions ?: emptyList())
+    private fun activeSessionsCrossApp(): List<MediaController> {
+        // Bez uprawnienia do powiadomien system nie pokaze sesji innych aplikacji.
+        return try {
+            mms.getActiveSessions(null) ?: emptyList()
+        } catch (t: Throwable) {
+            LogBus.log("media.sessions", t.message ?: "?", "warn")
+            emptyList()
         }
-        return list
     }
 
     /** Wznawia to, co NIXI zatrzymała. */
@@ -104,10 +81,8 @@ object MediaPauseController {
         }
         for (c in list) {
             try {
-                c.play()
-                c.release()
-            } catch (t: Throwable) {
-                runCatching { c.release() }
+                c.transportControls.play()
+            } catch (_: Throwable) {
             }
         }
         dev.nixi.NixiState.emit(dev.nixi.NixiState.NixiEvent.MusicState(false))

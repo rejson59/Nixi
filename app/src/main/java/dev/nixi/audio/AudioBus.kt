@@ -134,7 +134,7 @@ object AudioBus {
             val s = buf[i].toInt()
             sum += (s * s).toLong()
         }
-        return sqrt(sum / len) / 32768f
+        return (sqrt(sum.toDouble() / len) / 32768.0).toFloat()
     }
 }
 

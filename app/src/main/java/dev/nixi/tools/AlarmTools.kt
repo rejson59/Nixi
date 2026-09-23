@@ -69,8 +69,8 @@ object AlarmTools {
         val id: Long? = if (SupabaseHub.available) {
             val r = runCatching { SupabaseHub.c().insert(Tables.ALARMS, row) }.getOrNull()
             r?.rows?.firstOrNull()?.let {
-                it.optLong("id", 0).takeIf { v -> v > 0 } ?: r.rows.firstOrNull()?.optLong("created")
-            } ?: r.rows.firstOrNull()?.optLong("id")
+                it.optLong("id", 0).takeIf { v -> v > 0 } ?: it.optLong("created", 0).takeIf { v -> v > 0 }
+            } ?: r?.rows?.firstOrNull()?.optLong("id")
         } else null
 
         ActionNotifier.notify(

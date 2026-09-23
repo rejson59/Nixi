@@ -110,7 +110,7 @@ class LiveSessionService : Service() {
     }
 
     private fun beginSession() {
-        val trigger = intent?.getStringExtra(EXTRA_TRIGGER) ?: "button"
+        val trigger = "button"
         running = true
         NixiState.inSession.value = true
         NixiState.lastToolLine.value = ""
