@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="nixi_bg">#0B0716</color>
+    <color name="nixi_surface">#171029</color>
+    <color name="nixi_purple">#8F6FFF</color>
+    <color name="nixi_purple_deep">#5B3DF5</color>
+    <color name="nixi_violet_dark">#1A0066</color>
+    <color name="nixi_text">#EFEDFF</color>
+    <color name="nixi_icon_bg">#140B2E</color>
+</resources>
