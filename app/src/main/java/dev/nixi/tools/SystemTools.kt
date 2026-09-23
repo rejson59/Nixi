@@ -111,7 +111,7 @@ object SystemTools {
     }
 
     /** Profil użytkownika (users) — odczyt. */
-    fun userProfile(): ToolResult {
+    suspend fun userProfile(): ToolResult {
         if (!SupabaseHub.available) return ToolResult.fail("Supabase niedostępny.")
         val row = runCatching { SupabaseHub.c().listRows(Tables.USER, limit = 1).rows.firstOrNull() }
             .getOrNull()
@@ -120,7 +120,7 @@ object SystemTools {
         return ToolResult.ok("Profil: $name. ${row.toString().take(600)}")
     }
 
-    fun updateProfile(row: JSONObject): ToolResult {
+    suspend fun updateProfile(row: JSONObject): ToolResult {
         if (!SupabaseHub.available) return ToolResult.fail("Supabase niedostępny.")
         val keep = JSONObject()
         listOf("display_name", "name", "birth_date", "notes", "schedule_notes", "email", "city")
