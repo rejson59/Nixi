@@ -110,6 +110,10 @@ object LocalStore {
         get() = prefs.getInt("spotify_poll_interval", 5)
         set(v) = prefs.edit().putInt("spotify_poll_interval", v).apply()
 
+    var spotifyCodeVerifier: String
+        get() = prefs.getString("spotify_code_verifier", "") ?: ""
+        set(v) = prefs.edit().putString("spotify_code_verifier", v).apply()
+
     // ── Inne ───────────────────────────────────────────────────────────────
     var onboarded: Boolean
         get() = prefs.getBoolean("onboarded", false)

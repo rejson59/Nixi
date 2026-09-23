@@ -109,6 +109,20 @@
                 android:resource="@xml/nixi_accessibility_config" />
         </service>
 
+        <!-- Redirect OAuth Spotify (Authorization Code + PKCE) -->
+        <activity
+            android:name=".tools.SpotifyAuthActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:excludeFromRecents="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="nixi" android:host="spotify-auth" />
+            </intent-filter>
+        </activity>
+
         <!-- przypomnienia: dokładne alarmy -->
         <receiver
             android:name=".notif.ReminderReceiver"

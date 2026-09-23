@@ -147,6 +147,12 @@ fun ConversationUi(
     val lastTool by NixiState.lastToolLine.collectAsState()
     val pendingSql by NixiState.pendingSql.collectAsState()
 
+    // Narzędzie screen_manual_start tylko ustawia manualMode — tu faktycznie
+    // prosimy o systemową zgodę na podgląd ekranu (inaczej nie pojawiłaby się nigdy).
+    LaunchedEffect(manual) {
+        if (manual && ScreenCaptureService.instance == null) onManualMode()
+    }
+
     // kod Spotify (z narzędzia spotify_connect)
     var spotifyCode by remember { mutableStateOf<String?>(null) }
     var spotifyMsg by remember { mutableStateOf("") }

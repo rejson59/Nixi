@@ -26,6 +26,61 @@ object SpotifyApi {
     private val json = "application/json; charset=utf-8".toMediaType()
     private const val TOKEN_URL = "https://accounts.spotify.com/api/token"
     private const val BASE = "https://api.spotify.com/v1"
+    const val REDIRECT_URI = "nixi://spotify-auth"
+
+    /**
+     * Authorization Code + PKCE — jedyny publicznie wspierany flow logowania
+     * dla własnych aplikacji Spotify (Device Flow jest zarezerwowany dla partnerów).
+     * Redirect URI "nixi://spotify-auth" musi być dopisany w dashboardzie aplikacji Spotify.
+     */
+    fun buildAuthUrl(clientId: String): String {
+        val chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
+        val rnd = java.security.SecureRandom()
+        val verifier = (1..64).map { chars[rnd.nextInt(chars.length)] }.joinToString("")
+        LocalStore.spotifyClientId = clientId
+        LocalStore.spotifyCodeVerifier = verifier
+        val md = java.security.MessageDigest.getInstance("SHA-256")
+        val challenge = android.util.Base64.encodeToString(
+            md.digest(verifier.toByteArray(Charsets.US_ASCII)),
+            android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP
+        )
+        val scope = "user-read-currently-playing user-read-playback-state " +
+            "user-modify-playback-state user-library-read"
+        return "https://accounts.spotify.com/authorize" +
+            "?client_id=" + java.net.URLEncoder.encode(clientId, "UTF-8") +
+            "&response_type=code" +
+            "&redirect_uri=" + java.net.URLEncoder.encode(REDIRECT_URI, "UTF-8") +
+            "&scope=" + java.net.URLEncoder.encode(scope, "UTF-8") +
+            "&code_challenge_method=S256" +
+            "&code_challenge=" + challenge
+    }
+
+    /** Wymiana kodu autoryzacyjnego (z redirectu) na tokeny. */
+    suspend fun exchangeCode(code: String): String = withContext(Dispatchers.IO) {
+        try {
+            val form = FormBody.Builder()
+                .add("client_id", LocalStore.spotifyClientId)
+                .add("grant_type", "authorization_code")
+                .add("code", code)
+                .add("redirect_uri", REDIRECT_URI)
+                .add("code_verifier", LocalStore.spotifyCodeVerifier)
+                .build()
+            val resp = http.newCall(Request.Builder().url(TOKEN_URL).post(form).build()).execute()
+            val j = JSONObject(resp.body?.string().orEmpty())
+            if (resp.isSuccessful && j.has("access_token")) {
+                LocalStore.spotifyAccessToken = j.getString("access_token")
+                LocalStore.spotifyRefreshToken = j.optString("refresh_token", "")
+                LocalStore.spotifyTokenExpiry =
+                    System.currentTimeMillis() + j.optLong("expires_in", 3600) * 1000
+                LogBus.log("spotify.auth", "połączono (PKCE)")
+                "Spotify połączony!"
+            } else {
+                "Błąd logowania Spotify: ${j.optString("error_description", "HTTP ${resp.code}")}"
+            }
+        } catch (t: Throwable) {
+            "Błąd logowania Spotify: ${t.message}"
+        }
+    }
 
     var deviceFlowUri: String = ""
         private set

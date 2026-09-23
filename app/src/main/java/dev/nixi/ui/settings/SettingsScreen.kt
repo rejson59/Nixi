@@ -278,21 +278,16 @@ fun SettingsScreen() {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Button(
                     onClick = {
-                        val ctx = context
                         LocalStore.spotifyClientId = spId
-                        scope.launch {
-                            val (ok, msg) = SpotifyApi.startDeviceFlow(spId)
-                            spStatus = if (ok) {
-                                "Kod parowania: ${msg.lineSequence().last().trim()}. " +
-                                    "Sprawdzę połączenie automatycznie (powiadomienie po zatwierdzeniu)."
-                            } else "Błąd: $msg"
-                            if (ok) {
-                                // polling w tle aplikacji
-                                val res = SpotifyApi.pollDeviceFlow()
-                                spStatus = res
-                                dev.nixi.notif.ActionNotifier.notify(ctx, "NIXI: Spotify", res, short = true)
-                            }
-                        }
+                        runCatching {
+                            context.startActivity(
+                                android.content.Intent(
+                                    android.content.Intent.ACTION_VIEW,
+                                    android.net.Uri.parse(SpotifyApi.buildAuthUrl(spId))
+                                ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                            spStatus = "Otworzyłam logowanie Spotify w przeglądarce — po zatwierdzeniu powrócisz automatycznie."
+                        }.onFailure { spStatus = "Błąd: ${it.message}" }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = NixiPurple),
                     shape = RoundedCornerShape(12.dp),

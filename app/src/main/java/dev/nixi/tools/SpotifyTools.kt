@@ -13,14 +13,19 @@ object SpotifyTools {
         ToolResult.fail("Spotify nie jest połączony (Ustawienia → Integracje → Spotify).")
 
     fun connect(clientId: String): ToolResult {
-        if (clientId.isBlank()) return ToolResult.fail("Podaj Client ID Spotify.")
-        NixiAppScope.kickoff {
-            val (ok, msg) = SpotifyApi.startDeviceFlow(clientId)
-            NixiState.emit(NixiState.NixiEvent.ToolDone("spotify_connect", ok, msg))
+        if (clientId.isBlank()) return ToolResult.fail("Podaj Client ID Spotify (developer.spotify.com).")
+        return try {
+            val url = SpotifyApi.buildAuthUrl(clientId)
+            val it = android.content.Intent(
+                android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)
+            ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            ToolContext.app.startActivity(it)
+            ToolResult.ok(
+                "Otworzyłam logowanie Spotify w przeglądarce. Zaloguj się i zatwierdź — dam znać powiadomieniem."
+            )
+        } catch (t: Throwable) {
+            ToolResult.fail("Nie mogę otworzyć logowania Spotify: ${t.message}")
         }
-        return ToolResult.ok(
-            "Uruchamiam parowanie Spotify — wkrótce w aplikacji pojawi się kod do zatwierdzenia."
-        )
     }
 
     fun nowPlaying(): ToolResult {
