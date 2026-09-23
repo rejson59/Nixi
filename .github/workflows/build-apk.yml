@@ -36,21 +36,26 @@ jobs:
         continue-on-error: true
         run: gradle --no-daemon --stacktrace assembleDebug assembleRelease 2>&1 | tee gradle-output.log
 
-      # Tymczasowy krok diagnostyczny: przy bledzie zapisuje log w repo,
-      # zeby mozna go bylo przeczytac z zewnatrz (bez pobierania artefaktow).
-      - name: Publish build log on failure
-        if: steps.build.outcome == 'failure'
+      - name: Collect diagnostics
+        if: always()
+        id: diag
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout "${{ github.ref_name }}"
           mkdir -p ci
-          tail -c 400000 gradle-output.log > ci/build-log.txt
-          git add ci/build-log.txt
-          git commit -m "ci: log z budowania [skip ci]"
-          git push origin "${{ github.ref_name }}" || (git pull --rebase origin "${{ github.ref_name }}" && git push origin "${{ github.ref_name }}")
+          {
+            echo "== build outcome: ${{ steps.build.outcome }} =="
+            grep -E "BUILD (SUCCESS|FAIL)" gradle-output.log | tail -5 || true
+            echo "== gradle tasks tail =="
+            grep -E "^> Task" gradle-output.log | tail -15 || true
+            echo "== APK find =="
+            find . -name "*.apk" 2>/dev/null | head -20 || true
+            echo "== outputs tree =="
+            ls -laR app/build/outputs 2>/dev/null | head -60 || true
+            echo "== log tail =="
+            tail -c 60000 gradle-output.log || true
+          } > ci/diag.txt 2>&1
 
       - name: Upload APK artifacts
+        id: upload
         if: steps.build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
@@ -60,9 +65,21 @@ jobs:
             app/build/outputs/apk/release/*.apk
           if-no-files-found: error
 
+      # Tymczasowy krok diagnostyczny: przy bledzie zapisuje log w repo,
+      # zeby mozna go bylo przeczytac z zewnatrz (bez pobierania artefaktow).
+      - name: Publish diag on failure
+        if: always() && (steps.build.outcome == 'failure' || steps.upload.outcome == 'failure')
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout "${{ github.ref_name }}"
+          git add ci/diag.txt
+          git commit -m "ci: diag z budowania [skip ci]"
+          git push origin "${{ github.ref_name }}" || (git pull --rebase origin "${{ github.ref_name }}" && git push origin "${{ github.ref_name }}")
+
       - name: Report build status
         if: always()
-        run: test "${{ steps.build.outcome }}" = "success"
+        run: test "${{ steps.build.outcome }}-${{ steps.upload.outcome }}" = "success-success"
 
   # Auto-release z tagiem v* (np. git tag v1.0.0 && git push --tags)
   release:
