@@ -278,7 +278,7 @@ fun SettingsScreen() {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Button(
                     onClick = {
-                        val ctx = LocalContext.current
+                        val ctx = context
                         LocalStore.spotifyClientId = spId
                         scope.launch {
                             val (ok, msg) = SpotifyApi.startDeviceFlow(spId)

@@ -53,6 +53,7 @@ jobs:
             echo "== log tail =="
             tail -c 60000 gradle-output.log || true
           } > ci/diag.txt 2>&1
+          grep -h "^e: file" gradle-output.log | sort -u > ci/errors.txt || true
 
       - name: Upload APK artifacts
         id: upload
@@ -73,7 +74,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout "${{ github.ref_name }}"
-          git add ci/diag.txt
+          git add ci/
           git commit -m "ci: diag z budowania [skip ci]"
           git push origin "${{ github.ref_name }}" || (git pull --rebase origin "${{ github.ref_name }}" && git push origin "${{ github.ref_name }}")
 

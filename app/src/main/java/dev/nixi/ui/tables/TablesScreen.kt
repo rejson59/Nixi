@@ -146,68 +146,6 @@ fun TablesScreen() {
             }
         }
 
-        // dialogi DDL
-        if (newTableDlg) {
-            AlertDialog(
-                onDismissRequest = { newTableDlg = false },
-                containerColor = NixiSurface,
-                title = { Text("Nowa tabela", color = NixiText) },
-                text = {
-                    Column {
-                        NixiField("Nazwa tabeli", dlgTableName) { dlgTableName = it }
-                        Spacer(Modifier.height(8.dp))
-                        NixiField(
-                            "Kolumny, np: id bigint generated always as identity primary key, title text",
-                            dlgNewCols
-                        ) { dlgNewCols = it }
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                        val t = dlgTableName.trim().lowercase().replace(Regex("[^a-z0-9_]"), "_")
-                        val cols = dlgNewCols.trim()
-                            .ifBlank { "id bigint generated always as identity primary key" }
-                        NixiState.pendingSql.value = "CREATE TABLE IF NOT EXISTS $t (\n  $cols\n);"
-                        newTableDlg = false
-                    }, enabled = dlgTableName.isNotBlank()) {
-                        Text("Generuj SQL", color = NixiPurple)
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { newTableDlg = false }) { Text("Anuluj", color = NixiTextDim) }
-                },
-            )
-        }
-        if (addColDlg) {
-            AlertDialog(
-                onDismissRequest = { addColDlg = false },
-                containerColor = NixiSurface,
-                title = { Text("Nowa kolumna", color = NixiText) },
-                text = {
-                    Column {
-                        NixiField("Tabela", dlgTable) { dlgTable = it }
-                        Spacer(Modifier.height(8.dp))
-                        NixiField("kolumna typ (np. notes text)", dlgColDef) { dlgColDef = it }
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                        val parts = dlgColDef.trim().split(" ")
-                        if (parts.size >= 2 && dlgTable.isNotBlank()) {
-                            NixiState.pendingSql.value =
-                                "ALTER TABLE ${dlgTable.trim()} ADD COLUMN IF NOT EXISTS ${parts.joinToString(" ")};"
-                            addColDlg = false
-                        }
-                    }, enabled = dlgTable.isNotBlank() && dlgColDef.isNotBlank()) {
-                        Text("Generuj SQL", color = NixiPurple)
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { addColDlg = false }) { Text("Anuluj", color = NixiTextDim) }
-                },
-            )
-        }
-
         items(allTables) { name ->
             val meta = tables.firstOrNull { it.name == name }
             val cols = meta?.columns ?: emptyList<dev.nixi.db.PostgrestClient.ColumnMeta>()
@@ -247,6 +185,68 @@ fun TablesScreen() {
                 }
             }
         }
+    }
+
+    // dialogi DDL
+    if (newTableDlg) {
+        AlertDialog(
+            onDismissRequest = { newTableDlg = false },
+            containerColor = NixiSurface,
+            title = { Text("Nowa tabela", color = NixiText) },
+            text = {
+                Column {
+                    NixiField("Nazwa tabeli", dlgTableName) { dlgTableName = it }
+                    Spacer(Modifier.height(8.dp))
+                    NixiField(
+                        "Kolumny, np: id bigint generated always as identity primary key, title text",
+                        dlgNewCols
+                    ) { dlgNewCols = it }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val t = dlgTableName.trim().lowercase().replace(Regex("[^a-z0-9_]"), "_")
+                    val cols = dlgNewCols.trim()
+                        .ifBlank { "id bigint generated always as identity primary key" }
+                    NixiState.pendingSql.value = "CREATE TABLE IF NOT EXISTS $t (\n  $cols\n);"
+                    newTableDlg = false
+                }, enabled = dlgTableName.isNotBlank()) {
+                    Text("Generuj SQL", color = NixiPurple)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { newTableDlg = false }) { Text("Anuluj", color = NixiTextDim) }
+            },
+        )
+    }
+    if (addColDlg) {
+        AlertDialog(
+            onDismissRequest = { addColDlg = false },
+            containerColor = NixiSurface,
+            title = { Text("Nowa kolumna", color = NixiText) },
+            text = {
+                Column {
+                    NixiField("Tabela", dlgTable) { dlgTable = it }
+                    Spacer(Modifier.height(8.dp))
+                    NixiField("kolumna typ (np. notes text)", dlgColDef) { dlgColDef = it }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val parts = dlgColDef.trim().split(" ")
+                    if (parts.size >= 2 && dlgTable.isNotBlank()) {
+                        NixiState.pendingSql.value =
+                            "ALTER TABLE ${dlgTable.trim()} ADD COLUMN IF NOT EXISTS ${parts.joinToString(" ")};"
+                        addColDlg = false
+                    }
+                }, enabled = dlgTable.isNotBlank() && dlgColDef.isNotBlank()) {
+                    Text("Generuj SQL", color = NixiPurple)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { addColDlg = false }) { Text("Anuluj", color = NixiTextDim) }
+            },
+        )
     }
 
 }

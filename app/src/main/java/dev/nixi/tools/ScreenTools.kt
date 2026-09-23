@@ -1,6 +1,6 @@
 package dev.nixi.tools
 
-import android.view.accessibility.AccessibilityNodeInfo
+import android.accessibilityservice.AccessibilityService
 import dev.nixi.NixiState
 import kotlinx.coroutines.launch
 import dev.nixi.accessibility.NixiAccessibilityService
@@ -84,9 +84,9 @@ object ScreenTools {
         else ToolResult.fail("Brak aktywnego pola tekstowego, do którego mogę pisać.")
     }
 
-    fun back(): ToolResult = navigate(AccessibilityNodeInfo.GLOBAL_ACTION_BACK, "Wrócono (back).")
-    fun home(): ToolResult = navigate(AccessibilityNodeInfo.GLOBAL_ACTION_HOME, "Otwarto ekran główny.")
-    fun recents(): ToolResult = navigate(AccessibilityNodeInfo.GLOBAL_ACTION_RECENTS, "Pokazano ostatnie aplikacje.")
+    fun back(): ToolResult = navigate(AccessibilityService.GLOBAL_ACTION_BACK, "Wrócono (back).")
+    fun home(): ToolResult = navigate(AccessibilityService.GLOBAL_ACTION_HOME, "Otwarto ekran główny.")
+    fun recents(): ToolResult = navigate(AccessibilityService.GLOBAL_ACTION_RECENTS, "Pokazano ostatnie aplikacje.")
 
     private fun navigate(action: Int, okMsg: String): ToolResult {
         val svc = NixiAccessibilityService.instance

@@ -35,7 +35,7 @@ object EnrollmentController {
     fun reset() {
         attempts.clear()
         recordJob?.cancel()
-        _state.value = State(message = if (LocalStore.wakeTemplates.isNotBlank()) "Wcześniejszy szablon istnieje — nadpisać 3 nowymi próbami?" : "Kliknij i powiedz „Hej Nixi”.")
+        _state.value = State(message = if (LocalStore.wakeTemplates.isNotBlank()) "Wcześniejszy szablon istnieje — nadpisać 3 nowymi próbami?" else "Kliknij i powiedz „Hej Nixi”.")
     }
 
     fun startAttempt() {

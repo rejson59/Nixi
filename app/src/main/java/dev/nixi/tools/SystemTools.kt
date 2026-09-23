@@ -18,10 +18,10 @@ object SystemTools {
     fun now(): ToolResult {
         val ctx = ToolContext.app
         val bm = ctx.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
-        val level = if (android.os.Build.VERSION.SDK_INT >= 21) bm.intProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) else -1
+        val level = if (android.os.Build.VERSION.SDK_INT >= 21) bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) else -1
         val charging = when {
             android.os.Build.VERSION.SDK_INT >= 21 ->
-                bm.intProperty(BatteryManager.BATTERY_PROPERTY_STATUS) in
+                bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_STATUS) in
                     intArrayOf(BatteryManager.BATTERY_STATUS_CHARGING, BatteryManager.BATTERY_STATUS_FULL)
             else -> false
         }
@@ -31,7 +31,7 @@ object SystemTools {
         } catch (_: Exception) {
             true
         }
-        ToolResult.ok(
+        return ToolResult.ok(
             "Data: ${TimeUtils.fullNow()}. Bateria: ${level}%${if (charging) " (ładowanie)" else ""}. " +
                 "Internet: ${if (data) "tak" else "brak (WiFi sprawdzaj osobno)" }."
         )
@@ -64,7 +64,7 @@ object SystemTools {
         }
 
         // 2) wyszukiwanie po nazwie aplikacji (startowe)
-        var best: Pair<String, String>? = null // (score, label)
+        var best: Pair<Int, String>? = null // (score, label)
         var bestPkg = ""
         val apps = pm.getInstalledApplications(PackageManager.GET_META_DATA)
         for (a in apps) {

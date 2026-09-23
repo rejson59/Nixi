@@ -61,13 +61,13 @@ fun HomeScreen() {
     val mic by NixiState.micLevel.collectAsState()
     val speak by NixiState.speakLevel.collectAsState()
     val wake by NixiState.wakeActive.collectAsState()
-    val recent by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var recent by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var loadingRecent by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
         val rows = SupabaseHub.recentConversations(8)
-        recent.value = rows
-        loadingRecent.value = false
+        recent = rows
+        loadingRecent = false
     }
 
     val level = when (state) {
@@ -159,7 +159,7 @@ fun HomeScreen() {
 
         if (loadingRecent) {
             item { Text("Ładowanie…", color = NixiTextDim, fontSize = 13.sp) }
-        } else if (recent.value.isEmpty()) {
+        } else if (recent.isEmpty()) {
             item {
                 Text(
                     "Jeszcze nic tu nie ma — po kilku rozmowach NIXI będzie tu zostawiać krótkie podsumowania.",
@@ -167,7 +167,7 @@ fun HomeScreen() {
                 )
             }
         } else {
-            items(recent.value) { r ->
+            items(recent) { r ->
                 Surface(
                     color = NixiSurface,
                     shape = RoundedCornerShape(12.dp),

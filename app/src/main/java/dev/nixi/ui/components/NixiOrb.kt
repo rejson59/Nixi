@@ -14,8 +14,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PaintingStyle
-import androidx.compose.ui.graphics.Transform
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.unit.Dp
@@ -60,8 +60,8 @@ fun NixiOrb(
         NixiState.OrbState.TPM_LIMIT -> 3.5f
         else -> 1.9f
     }
-    val breath = 1f + 0.045f * (sin(t * 2f * PI / 4.2f) + 1f) * 0.5f
-    val pulse = (sin(t * 2f * PI / pulsePeriod + PI / 3f) + 1f) * 0.5f
+    val breath = (1f + 0.045f * (sin(t * 2f * PI / 4.2f) + 1f) * 0.5f).toFloat()
+    val pulse = ((sin(t * 2f * PI / pulsePeriod + PI / 3f) + 1f) * 0.5f).toFloat()
     val levelBoost = when (state) {
         NixiState.OrbState.SPEAKING -> 0.30f
         NixiState.OrbState.LISTENING -> 0.18f
@@ -77,7 +77,7 @@ fun NixiOrb(
     }
 
     Canvas(modifier = modifier.size(size)) {
-        val c = Size(width, height)
+        val c = size
         val cx = c.width / 2f
         val cy = c.height / 2f
         val r = minOf(c.width, c.height) / 2f * scale * 0.62f
@@ -122,6 +122,7 @@ fun NixiOrb(
         // ── ENERGIA 1 (conic, obrót 9 s) ─────────────────────
         val energySpeed = if (state == NixiState.OrbState.SPEAKING) 1.6f else 1f
         val rot1 = (t * 40f * energySpeed) % 360f
+        rotate(rot1, pivot = Offset(cx, cy)) {
         drawCircle(
             brush = Brush.sweepGradient(
                 colors = listOf(
@@ -134,16 +135,17 @@ fun NixiOrb(
                     Color.Transparent,
                 ),
                 center = Offset(cx, cy),
-                transform = Transform.Rotation(rot1, cx, cy),
             ),
             radius = r,
             center = Offset(cx, cy),
             alpha = 0.85f,
             blendMode = BlendMode.Screen,
         )
+        }
 
         // ── ENERGIA 2 (odwrotnie, wolniej) ────────────────────
         val rot2 = -((t * 21f) % 360f)
+        rotate(rot2, pivot = Offset(cx, cy)) {
         drawCircle(
             brush = Brush.sweepGradient(
                 colors = listOf(
@@ -154,13 +156,13 @@ fun NixiOrb(
                     Color.Transparent,
                 ),
                 center = Offset(cx, cy),
-                transform = Transform.Rotation(rot2, cx, cy),
             ),
             radius = r,
             center = Offset(cx, cy),
             alpha = 0.7f,
             blendMode = BlendMode.Screen,
         )
+        }
 
         // ── RDZEŃ ────────────────────────────────────────────
         val coreScale = 1f + 0.2f * pulse + 0.25f * level
@@ -184,12 +186,11 @@ fun NixiOrb(
         drawShimmerBand(cx, cy, r, shimmerX)
 
         // ── RIM ──────────────────────────────────────────────
-        strokeWidth = 1.5f
         drawCircle(
             color = Color.White.copy(alpha = 0.15f),
             radius = r,
             center = Offset(cx, cy),
-            style = PaintingStyle.Stroke,
+            style = Stroke(width = 1.5f),
         )
         drawCircle(
             brush = Brush.radialGradient(
@@ -204,18 +205,18 @@ fun NixiOrb(
         // ── REFLEKSY ─────────────────────────────────────────
         drawSpecular(
             center = Offset(cx - r * 0.34f, cy - r * 0.44f),
-            size = Offset(r * 0.62f, r * 0.40f),
+            size = Size(r * 0.62f, r * 0.40f),
             alpha = 0.5f,
         )
         drawSpecular(
             center = Offset(cx - r * 0.24f, cy - r * 0.34f),
-            size = Offset(r * 0.20f, r * 0.13f),
+            size = Size(r * 0.20f, r * 0.13f),
             alpha = 0.52f,
         )
         // fioletowy refleks dół-prawo
         drawSpecular(
             center = Offset(cx + r * 0.28f, cy + r * 0.38f),
-            size = Offset(r * 0.55f, r * 0.35f),
+            size = Size(r * 0.55f, r * 0.35f),
             alpha = 0.28f,
             color = accent,
         )
@@ -224,8 +225,7 @@ fun NixiOrb(
 
 private fun DrawScope.drawShimmerBand(cx: Float, cy: Float, r: Float, x: Float) {
     // pasek po przekątnej, przycięty do kuli
-    save()
-    clipRect(left = cx - r, top = cy - r, right = cx + r, bottom = cy + r)
+    clipRect(left = cx - r, top = cy - r, right = cx + r, bottom = cy + r) {
     rotate(16f, Offset(cx, cy)) {
         val w = r * 0.46f
         val left = cx - r * 1.25f + 2.5f * r * x
@@ -240,12 +240,12 @@ private fun DrawScope.drawShimmerBand(cx: Float, cy: Float, r: Float, x: Float) 
             alpha = if (x in 0f..1f) 1f else 0f,
         )
     }
-    restore()
+    }
 }
 
 private fun DrawScope.drawSpecular(
     center: Offset,
-    size: Offset,
+    size: Size,
     alpha: Float,
     color: Color = Color.White,
 ) {
@@ -257,9 +257,9 @@ private fun DrawScope.drawSpecular(
                 Color.Transparent,
             ),
             center = center,
-            radius = maxOf(size.x, size.y) * 0.7f,
+            radius = maxOf(size.width, size.height) * 0.7f,
         ),
-        topLeft = Offset(center.x - size.x / 2f, center.y - size.y / 2f),
+        topLeft = Offset(center.x - size.width / 2f, center.y - size.height / 2f),
         size = size,
     )
 }

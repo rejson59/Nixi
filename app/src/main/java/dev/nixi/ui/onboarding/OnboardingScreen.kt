@@ -367,7 +367,7 @@ private fun StepVoice(onFinish: () -> Unit) {
 
 @Composable
 private fun FlowRowVoices(voices: List<String>, selected: String, onSelect: (String) -> Unit) {
-    var row by remember { mutableStateOf<List<String>>(listOf()) }
+    var row by remember { mutableStateOf<List<List<String>>>(listOf()) }
     if (row.size != voices.size) {
         row = chunked(voices, selected)
     }

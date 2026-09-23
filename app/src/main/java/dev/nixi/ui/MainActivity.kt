@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.List
@@ -95,14 +94,14 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun Root() {
     var onboarded by remember { mutableStateOf(LocalStore.onboarded) }
+    val appCtx = LocalContext.current
     if (!onboarded) {
         OnboardingScreen(
             onFinish = {
                 LocalStore.onboarded = true
                 SupabaseHub.rebuild()
                 SupabaseHub.refreshAll()
-                val ctx = LocalContext.current
-                if (LocalStore.wakeEnabled) WakeWordService.start(ctx)
+                if (LocalStore.wakeEnabled) WakeWordService.start(appCtx)
                 onboarded = true
             }
         )
@@ -114,8 +113,8 @@ fun Root() {
 @Composable
 private fun MainShell() {
     var tab by remember { mutableIntStateOf(0) }
+    val ctx = LocalContext.current
     LaunchedEffect(Unit) {
-        val ctx = LocalContext.current
         if (!WakeWordService.running && LocalStore.wakeEnabled) {
             WakeWordService.start(ctx)
         }

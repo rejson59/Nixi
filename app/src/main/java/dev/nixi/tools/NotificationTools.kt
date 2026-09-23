@@ -26,12 +26,12 @@ object NotificationTools {
             } else {
                 ToolResult.ok(
                     "Powiadomienia (${filtered.size}):\n" +
-                        filtered.joinToString("\n") {
-                            val extras = it.notification.extras
-                            val t = extras.getCharSequence("android.title")?.toString().orEmpty()
-                            val b = extras.getCharSequence("android.text")?.toString().orEmpty()
-                            "- [${it.packageName}] ${fmt.format(Date(it.postTime))}: $t — $b"
-                        }
+                        filtered.map { n ->
+                            val extras = n.notification.extras
+                            val t = extras?.getCharSequence("android.title")?.toString().orEmpty()
+                            val b = extras?.getCharSequence("android.text")?.toString().orEmpty()
+                            "- [${n.packageName}] ${fmt.format(Date(n.postTime))}: $t — $b"
+                        }.joinToString("\n")
                 )
             }
         } catch (t: Throwable) {

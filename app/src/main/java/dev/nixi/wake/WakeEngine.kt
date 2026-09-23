@@ -226,7 +226,7 @@ class WakeEngine {
             s2 = s1
             s1 = s0
         }
-        return (s1 * s1 + s2 * s2 - coeff * s1 * s2).coerceAtLeast(0f).toFloat() / (n * n)
+        return (s1 * s1 + s2 * s2 - coeff * s1 * s2).coerceAtLeast(0.0).toFloat() / (n * n)
     }
 
     // ── DTW (Sakoe-Chiba) ─────────────────────────────────────────────────
@@ -356,10 +356,10 @@ object WakeEnroll {
             s2 = s1
             s1 = s0
         }
-        return (s1 * s1 + s2 * s2 - coeff * s1 * s2).coerceAtLeast(0f).toFloat() / (n * n)
+        return (s1 * s1 + s2 * s2 - coeff * s1 * s2).coerceAtLeast(0.0).toFloat() / (n * n)
     }
 }
 
 private fun Float.pow(e: Float): Float {
-    return kotlin.math.pow(this.toDouble(), e.toDouble()).toFloat()
+    return Math.pow(this.toDouble(), e.toDouble()).toFloat()
 }

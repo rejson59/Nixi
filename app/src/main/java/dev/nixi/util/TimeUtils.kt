@@ -64,8 +64,8 @@ object TimeUtils {
                     } else t
                 }
                 Regex("""^\d{1,2}[:.]\d{2}$""").matches(t) -> {
-                    val h = t.substringBeforeAny(charArrayOf(':', '.')).toInt()
-                    val m = t.substringAfterAny(charArrayOf(':', '.')).toInt()
+                    val h = t.substringBefore(':').substringBefore('.').toInt()
+                    val m = t.substringAfter(':').substringAfter('.').toInt()
                     val cal = Calendar.getInstance()
                     cal.set(Calendar.HOUR_OF_DAY, h)
                     cal.set(Calendar.MINUTE, m)

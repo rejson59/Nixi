@@ -63,7 +63,7 @@ object ReminderTools {
         val ins = runCatching { SupabaseHub.c().insert(Tables.REMINDERS, row) }.getOrNull()
         if (ins == null || !ins.ok) return ToolResult.fail("Błąd zapisu: ${ins?.error}")
 
-        val id = ins.rows.firstOrNull()?.optLong("id", 0)
+        val id = ins.rows.firstOrNull()?.optLong("id", 0) ?: 0L
         if (id > 0) scheduleAlarm(ToolContext.app, id, firesAt.time, title)
 
         ActionNotifier.notify(

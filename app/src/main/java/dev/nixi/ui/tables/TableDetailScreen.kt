@@ -60,6 +60,7 @@ import dev.nixi.ui.theme.NixiText
 import dev.nixi.ui.theme.NixiTextDim
 import dev.nixi.ui.theme.NixiWarn
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 import org.json.JSONObject
 
 /** Przeglądarka wierszy jednej tabeli: CRUD + dostęp NIXI. */
@@ -375,12 +376,14 @@ internal fun parseValue(raw: String): Any {
     if (t.equals("null", true)) return JSONObject.NULL
     if (t == "true" || t == "false") return t == "true"
     return try {
-        if (t.startsWith("{") || t.startsWith("[")) {
-            org.json.JSON.parse(t)
-        } else if (t.toLongOrNull() != null || t.toDoubleOrNull() != null) {
-            org.json.JSON.parse(t)
+        if (t.startsWith("{") && t.endsWith("}")) {
+            JSONObject(t)
+        } else if (t.startsWith("[") && t.endsWith("]")) {
+            JSONArray(t)
         } else {
-            t
+            val asLong = t.toLongOrNull()
+            val asDouble = t.toDoubleOrNull()
+            if (asLong != null) asLong else asDouble ?: t
         }
     } catch (_: Exception) {
         t
