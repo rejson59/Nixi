@@ -228,7 +228,10 @@ class LiveSessionService : Service() {
         client = c
 
         scope.launch {
-            val prompt = withTimeoutOrNull(6000) { SystemPromptBuilder.build() }
+            val manual = NixiState.manualMode.value
+            val w = if (manual) resources.displayMetrics.widthPixels else 0
+            val h = if (manual) resources.displayMetrics.heightPixels else 0
+            val prompt = withTimeoutOrNull(6000) { SystemPromptBuilder.build(w, h) }
                 ?: "Jesteś NIXI, osobistą asystentką. Mów po polsku, zwięźle."
             if (ended.get()) return@launch
             val setup = buildSetup(prompt)

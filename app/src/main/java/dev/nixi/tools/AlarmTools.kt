@@ -64,7 +64,7 @@ object AlarmTools {
             put("sound", sound)
             put("active", true)
             put("created_by_nixi", true)
-            put("created_at", System.currentTimeMillis())
+            // created_at wypełnia baza (timestamptz default now())
         }
         val id: Long? = if (SupabaseHub.available) {
             val r = runCatching { SupabaseHub.c().insert(Tables.ALARMS, row) }.getOrNull()

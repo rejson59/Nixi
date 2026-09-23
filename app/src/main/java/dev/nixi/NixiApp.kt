@@ -26,6 +26,9 @@ class NixiApp : Application() {
         LocalStore.init(this)
         SupabaseHub.init(this)
         ActionNotifier.init(this)
+        // narzędzia mogą być wołane z tła (ciche reguły, przypomnienia) —
+        // kontekst aplikacji musi być gotowy od pierwszej chwili
+        dev.nixi.tools.ToolContext.app = this
 
         // Błędy globalne -> tabela "errors" (best effort, nigdy nie blokujemy aplikacji)
         val previous = Thread.getDefaultUncaughtExceptionHandler()

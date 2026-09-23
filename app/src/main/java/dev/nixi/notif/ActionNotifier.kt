@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import dev.nixi.ui.MainActivity
+import dev.nixi.util.LogBus
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -128,6 +129,13 @@ object ActionNotifier {
             context, 77, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        if (!canUseFullScreenIntent()) {
+            LogBus.log(
+                "wake.fsi",
+                "brak zgody na pełny ekran — pokażę heads-up (Ustawienia → Wezwania na pełnym ekranie)",
+                "warn"
+            )
+        }
         val n = Notification.Builder(context, CH_WAKE)
             .setSmallIcon(android.R.drawable.stat_notify_chat)
             .setContentTitle("NIXI słucha")

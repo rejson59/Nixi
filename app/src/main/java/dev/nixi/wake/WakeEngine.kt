@@ -57,6 +57,7 @@ class WakeEngine {
         1333.33f * (10f.pow(m / 2595f) - 1f)
     }
 
+    @Synchronized
     fun configure(mode: Mode, sensitivity: Float) {
         this.mode = mode
         this.sensitivity = sensitivity
@@ -69,6 +70,7 @@ class WakeEngine {
     // ── Szablony ──────────────────────────────────────────────────────────
 
     /** JSON: {"bands":n,"hopMs":h,"threshold":t,"templates":[[[..],[..]],...]} */
+    @Synchronized
     fun loadFromJson(json: String) {
         try {
             val o = JSONObject(json)
@@ -116,11 +118,17 @@ class WakeEngine {
         return o.toString()
     }
 
+    @Synchronized
     fun hasTemplates(): Boolean = templates.isNotEmpty()
 
     // ── Wejście PCM ───────────────────────────────────────────────────────
 
-    /** Zwraca true, gdy wykryto "Hej Nixi". */
+    /**
+     * Zwraca true, gdy wykryto "Hej Nixi".
+     * Synchronizowane z [configure]/[loadFromJson] — inaczej zmiana ustawień
+     * w trakcie nasłuchu mogła uszkodzić bufor klatek.
+     */
+    @Synchronized
     fun onPcm(pcm: ShortArray, len: Int): Boolean {
         // docelowa liczba pasm = bands (16 lub 8)
         var i = 0

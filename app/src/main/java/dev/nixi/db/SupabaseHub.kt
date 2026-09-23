@@ -33,8 +33,17 @@ object SupabaseHub {
         rebuild()
     }
 
-    /** Odświeża: odkrywanie tabel + uprawnienia + admin_table. (safe z UI) */
-    fun refreshAll() {
+    @Volatile private var lastRefreshAt = 0L
+
+    /**
+     * Odświeża: odkrywanie tabel + uprawnienia + admin_table. (safe z UI)
+     * Throttling: onResume bywa wołane bardzo często (np. powrót z każdego
+     * ekranu), a każde odświeżenie to 3 zapytania do Supabase.
+     */
+    fun refreshAll(force: Boolean = false) {
+        val now = System.currentTimeMillis()
+        if (!force && now - lastRefreshAt < 15_000) return
+        lastRefreshAt = now
         dev.nixi.NixiApp.scope.launch {
             if (!available) return@launch
             runCatching { c().discover() }

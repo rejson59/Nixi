@@ -96,6 +96,9 @@ object EnrollmentController {
                 val json = WakeEngine().toJson(16, 10, threshold, attempts)
                 LocalStore.wakeTemplates = json
                 WakeWordService.engine.loadFromJson(json)
+                // loadFromJson ustawia tryb wynikający z szablonu (hop 10 ms =>
+                // STANDARD) i nadpisywał wybór użytkownika — przywracamy go.
+                WakeWordService.ensureEngineConfigured()
                 LogBus.log("wake.enroll", "szablon zapisany (próg ${"%.3f".format(threshold)})")
                 _state.value = State(
                     takes = takes, recording = false,
