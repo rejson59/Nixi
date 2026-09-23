@@ -42,6 +42,12 @@ android {
         compose = true
     }
 
+    testOptions {
+        // testy jednostkowe nie potrzebują emulatora; nie wywalamy ich na
+        // "not mocked" przy okazjonalnym dotknięciu klasy z android.jar
+        unitTests.isReturnDefaultValues = true
+    }
+
     packaging {
         resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
     }
@@ -63,4 +69,6 @@ dependencies {
 
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.okhttp)
+
+    testImplementation(libs.junit)
 }

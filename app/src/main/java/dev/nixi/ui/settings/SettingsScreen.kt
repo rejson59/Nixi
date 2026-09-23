@@ -43,11 +43,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.nixi.accessibility.NixiAccessibilityService
+import dev.nixi.NixiState
 import dev.nixi.db.SupabaseHub
 import dev.nixi.notif.NixiNotificationListener
 import dev.nixi.store.LocalStore
 import dev.nixi.tools.SpotifyApi
+import dev.nixi.ui.components.rememberOnResumeTick
 import dev.nixi.ui.onboarding.NixiField
+import dev.nixi.util.DeviceTweaks
 import dev.nixi.ui.theme.NixiBg
 import dev.nixi.ui.theme.NixiOk
 import dev.nixi.ui.theme.NixiPurple
@@ -88,8 +91,17 @@ fun SettingsScreen() {
 
     var wipeConfirm by remember { mutableStateOf(false) }
 
+    // stan uprawnień/ustawień systemowych zmienia się poza aplikacją —
+    // odświeżamy po każdym powrocie do NIXI
+    val resumeTick = rememberOnResumeTick()
+    val a11yOn = remember(resumeTick) { NixiAccessibilityService.isAvailable() }
+    val listenerOn = remember(resumeTick) { NixiNotificationListener.isEnabled(context) }
+    val batteryFree = remember(resumeTick) { DeviceTweaks.isIgnoringBatteryOptimizations(context) }
+    val fsIntentOk = remember(resumeTick) { DeviceTweaks.isFullScreenIntentAllowed() }
+
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val enroll by EnrollmentController.state.collectAsState()
+    val tpmInfo by NixiState.tpm.collectAsState()
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -105,12 +117,14 @@ fun SettingsScreen() {
             }
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Ochrona TPM:", color = NixiText, fontSize = 13.sp)
-                listOf("eco (45K)", "standard (55K)", "custom", "wyłączona").forEach { m ->
+            Column {
+                Text("Ochrona TPM (limit tokenów/min):", color = NixiText, fontSize = 13.sp)
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                listOf("eco 45K", "std 55K", "custom", "wył.").forEach { m ->
                     val (label, value) = when (m) {
-                        "eco (45K)" -> m to "eco"
-                        "standard (55K)" -> m to "standard"
+                        "eco 45K" -> m to "eco"
+                        "std 55K" -> m to "standard"
                         "custom" -> m to "custom"
                         else -> m to "off"
                     }
@@ -123,6 +137,13 @@ fun SettingsScreen() {
                             fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp))
                     }
                 }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "Teraz: ${tpmInfo.used} / ${tpmInfo.limit} tokenów w tej minucie" +
+                        (if (tpmInfo.percent > 0) " (${tpmInfo.percent}%)" else ""),
+                    color = NixiTextDim, fontSize = 11.sp,
+                )
             }
         }
         if (tpmMode == "custom") {
@@ -301,11 +322,63 @@ fun SettingsScreen() {
         }
         item { Text(spStatus, color = NixiTextDim, fontSize = 12.sp) }
 
+        item { SectionTitle("Telefon: praca w tle${if (DeviceTweaks.isXiaomi) " (Xiaomi/HyperOS)" else ""}") }
+        item {
+            Text(
+                "Aby NIXI nie została zatrzymana po zgaszeniu ekranu, zezwól jej na pracę w tle. " +
+                    "Bez tego nasłuch „Hej Nixi” i wezwanie rozmowy mogą zniknąć po kilku minutach" +
+                    (if (DeviceTweaks.isXiaomi) " (HyperOS zabija aplikacje bardzo szybko)." else "."),
+                color = NixiTextDim, fontSize = 11.sp,
+            )
+        }
+        item {
+            PermRow(
+                "Bateria bez ograniczeń",
+                batteryFree,
+                openSettings = {
+                    if (!DeviceTweaks.openBatterySaver(context)) {
+                        runCatching { context.startActivity(DeviceTweaks.appDetails(context)) }
+                    }
+                }
+            )
+        }
+        if (DeviceTweaks.isXiaomi) {
+            item {
+                PermRow(
+                    "Autostart (wymagane po restarcie telefonu)",
+                    !WakeWordService.running || batteryFree,
+                    openSettings = { DeviceTweaks.openAutoStart(context) }
+                )
+            }
+            item {
+                OutlinedButton(onClick = { DeviceTweaks.openPermissionEditor(context) }) {
+                    Text("Okna w tle i uprawnienia (HyperOS)", color = NixiPurple, fontSize = 12.sp)
+                }
+            }
+        }
+        if (Build.VERSION.SDK_INT >= 34) {
+            item {
+                PermRow(
+                    "Wezwanie rozmowy na pełnym ekranie",
+                    fsIntentOk,
+                    openSettings = {
+                        runCatching {
+                            context.startActivity(
+                                Intent("android.settings.MANAGE_APP_USE_FULL_SCREEN_INTENT")
+                                    .setData(android.net.Uri.parse("package:" + context.packageName))
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                        }
+                    }
+                )
+            }
+        }
+
         item { SectionTitle("Uprawnienia dodatkowe") }
         item {
             PermRow(
-                "Dostęp do powiadomień (odczyt + ciche reguły)",
-                NixiNotificationListener.isEnabled(context),
+                "Dostęp do powiadomień (odczyt + ciche reguły + pauza muzyki)",
+                listenerOn,
                 openSettings = {
                     context.startActivity(
                         Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
@@ -317,7 +390,7 @@ fun SettingsScreen() {
         item {
             PermRow(
                 "Usługa dostępności (sterowanie w trybie ręcznym)",
-                NixiAccessibilityService.isAvailable(),
+                a11yOn,
                 openSettings = {
                     context.startActivity(
                         Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)

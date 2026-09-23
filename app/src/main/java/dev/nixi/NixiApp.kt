@@ -39,5 +39,14 @@ class NixiApp : Application() {
         }
 
         ActionNotifier.ensureChannels()
+
+        // Diagnostyka audio na ekranie głównym (np. „mikrofon zajęty przez rozmowę”).
+        scope.launch {
+            dev.nixi.NixiState.events.collect { e ->
+                if (e is dev.nixi.NixiState.NixiEvent.ErrorHappened && e.tag == "audio") {
+                    dev.nixi.NixiState.lastAudioError.value = e.message
+                }
+            }
+        }
     }
 }

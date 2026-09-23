@@ -110,6 +110,16 @@ object CalendarTools {
         return ToolResult.ok("Usunęłam wydarzenie #$id.")
     }
 
+    /** id z JSON-a bywa liczbą albo stringiem — nigdy nie rzucamy wyjątku. */
+    private fun rowId(row: JSONObject): String? = try {
+        when {
+            row.isNull("id") -> null
+            else -> row.opt("id")?.toString()?.takeIf { it.isNotBlank() }
+        }
+    } catch (_: Exception) {
+        null
+    }
+
     suspend fun substitute(subject: String): ToolResult {
         if (!SupabaseHub.available) return ToolResult.fail("Supabase niedostępny.")
         val (t0, t1) = TimeUtils.todayWindow()
@@ -120,12 +130,19 @@ object CalendarTools {
             val eTitle = e.optString("title").lowercase()
             if (e.optString("kind") == "zastepstwo") continue
             val subj = subject.lowercase()
-            if (subj.isNotEmpty() && (eTitle.contains(subj) || subj.contains(eTitle))) {
+            // dopasowanie po przedmiocie: albo tytuł zawiera przedmiot, albo odwrotnie,
+            // ale tylko dla sensownie długich nazw (żeby „z” nie łapało wszystkiego)
+            val matches = subj.isNotEmpty() && eTitle.isNotEmpty() && (
+                eTitle.contains(subj) ||
+                    (subj.length >= 5 && eTitle.length >= 5 && subj.contains(eTitle))
+                )
+            if (matches) {
                 val row = JSONObject().apply {
                     put("kind", "zastepstwo")
                     put("title", "Zastępstwo: $subject")
                 }
-                val r = SupabaseHub.updateRow(Tables.CALENDAR, mapOf("id" to "eq.${e.getInt("id")}"), row)
+                val id = rowId(e) ?: continue
+                val r = SupabaseHub.updateRow(Tables.CALENDAR, mapOf("id" to "eq.$id"), row)
                 if (r.ok) { changed++; lastTitle = e.optString("title") }
             }
         }
@@ -134,6 +151,6 @@ object CalendarTools {
             ToolContext.app, "NIXI: kalendarz",
             "Zastępstwo: $subject (zmieniono: $changed)", short = true
         )
-        return ToolResult.ok("Oznaaczyłam zastępstwo: $subject (poprzednio: $lastTitle).")
+        return ToolResult.ok("Oznaczyłam zastępstwo: $subject (poprzednio: $lastTitle).")
     }
 }

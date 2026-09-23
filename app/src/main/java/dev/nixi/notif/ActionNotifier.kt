@@ -141,6 +141,37 @@ object ActionNotifier {
         runCatching { nm.notify(7001, n) }
     }
 
+    /** Powiadomienie z akcją użytkownika (np. wznowienie nasłuchu z tła). */
+    fun urgentAction(
+        context: Context,
+        title: String,
+        text: String,
+        action: PendingIntent,
+        id: Int,
+        channel: String = CH_ACTIONS,
+    ) {
+        ensureChannels()
+        val n = Notification.Builder(context, channel)
+            .setSmallIcon(android.R.drawable.stat_notify_chat)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(Notification.BigTextStyle().bigText(text))
+            .setAutoCancel(true)
+            .setOngoing(false)
+            .setContentIntent(action)
+            .setCategory(Notification.CATEGORY_STATUS)
+            .setVisibility(Notification.VISIBILITY_PRIVATE)
+            .build()
+        runCatching { nm.notify(id, n) }
+    }
+
+    /** Czy system pozwoli na pełnoekranowe wezwanie (Android 14+). */
+    fun canUseFullScreenIntent(): Boolean = try {
+        if (Build.VERSION.SDK_INT >= 34) nm.canUseFullScreenIntent() else true
+    } catch (_: Throwable) {
+        false
+    }
+
     /** Powiadomienie przypomnienia (wysoka ważność, dźwięk). */
     fun reminder(context: Context, id: Long, title: String, text: String) {
         ensureChannels()

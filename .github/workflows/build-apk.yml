@@ -28,8 +28,19 @@ jobs:
           gradle-version: "8.10.2"
           cache-read-only: false
 
+      - name: Unit tests (logika czasu, TPM, wake-word, przypomnienia)
+        run: gradle --no-daemon --stacktrace testDebugUnitTest
+
       - name: Build APKs
         run: gradle --no-daemon --stacktrace assembleDebug assembleRelease
+
+      - name: Upload test results (gdy testy padną)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: NIXI-test-results-${{ github.sha }}
+          path: app/build/reports/tests/**
+          if-no-files-found: ignore
 
       - name: Upload APK artifacts
         uses: actions/upload-artifact@v4

@@ -22,6 +22,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,22 +54,24 @@ import java.util.Locale
 /** Logi systemowe (system_logs) + błędy (errors) — z bazy i z bufora lokalnego. */
 @Composable
 fun LogsScreen() {
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
     var filter by remember { mutableStateOf("all") }
     var dbRows by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var dbReady by remember { mutableStateOf(false) }
-    val local = remember { LogBus.tail(100) }
+    var local by remember { mutableStateOf(LogBus.tail(100)) }
+    var tick by remember { mutableStateOf(0) }
     val fmt = remember { SimpleDateFormat("dd.MM HH:mm:ss", Locale("pl")) }
 
-    fun load() {
-        scope.launch {
-            val rows = if (filter == "errors") SupabaseHub.recentLogs(100, Tables.ERRORS)
-            else SupabaseHub.recentLogs(100, Tables.LOGS)
-            dbRows = rows
-            dbReady = true
-        }
+    // Ładowanie TYLKO gdy zmieni się filtr albo gdy użytkownik odświeży —
+    // wcześniej `load()` stało w ciele kompozycji i strzelało siecią przy
+    // każdym przeliczeniu (pętla zapytań).
+    LaunchedEffect(filter, tick) {
+        local = LogBus.tail(100)
+        dbReady = false
+        val rows = if (filter == "errors") SupabaseHub.recentLogs(100, Tables.ERRORS)
+        else SupabaseHub.recentLogs(100, Tables.LOGS)
+        dbRows = rows
+        dbReady = true
     }
-    load()
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -84,22 +87,20 @@ fun LogsScreen() {
                     Surface(
                         color = if (active) NixiPurple else NixiSurface,
                         shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.padding(start = 6.dp),
+                        modifier = Modifier
+                            .padding(start = 6.dp)
+                            .androidxComposeClick { filter = v },
                     ) {
-                        Box {
-                            Text(
-                                l,
-                                color = if (active) Color.White else NixiText,
-                                fontSize = 12.sp,
-                                modifier = Modifier
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
-                                    .androidxComposeClick { filter = v; load() },
-                            )
-                        }
+                        Text(
+                            l,
+                            color = if (active) Color.White else NixiText,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        )
                     }
                 }
                 Spacer(Modifier.weight(1f))
-                OutlinedButton(onClick = { load() }) {
+                OutlinedButton(onClick = { tick++ }) {
                     Text("Odśwież", color = NixiPurple, fontSize = 12.sp)
                 }
             }

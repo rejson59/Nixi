@@ -76,6 +76,12 @@ class GeminiLiveClient(
                     handleMessage(text)
                 }
 
+                // Gemini Live potrafi wysłać JSON jako ramkę binarną (np. przy dużych
+                // odpowiedziach z inlineData) — obsługujemy oba warianty.
+                override fun onMessage(webSocket: WebSocket, bytes: okio.ByteString) {
+                    handleMessage(bytes.utf8())
+                }
+
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                     open.set(false)
                     listener.onClosed(code, reason)
@@ -192,6 +198,7 @@ class GeminiLiveClient(
     }
 
     fun sendAudio(base64Pcm: String) {
+        sentAudioChunks++
         send(
             JSONObject().put("realtimeInput", JSONObject().put("audio",
                 JSONObject().put("data", base64Pcm)
@@ -215,26 +222,23 @@ class GeminiLiveClient(
         send(JSONObject().put("toolResponse", JSONObject().put("functionResponses", functionResponses)))
     }
 
-    fun sendSessionUpdate(update: JSONObject) {
-        send(JSONObject().put("sessionUpdate", update))
-    }
-
-    fun interrupt() {
-        send(JSONObject().put("interrupt", JSONObject()))
-    }
-
-    fun goAway() {
-        if (open.compareAndSet(true, false)) {
-            send(JSONObject().put("goAway", JSONObject()))
-        }
-    }
-
+    /**
+     * Uwaga: `interrupt`, `goAway` i `sessionUpdate` NIE są komunikatami
+     * klienta w BidiGenerateContent — wysyłanie ich kończyło się błędem
+     * protokołu i zrywało sesję. Przerwanie odpowiedzi modelu robi się
+     * lokalnie (patrz AudioPlayer.flush) oraz przez automatyczne VAD.
+     * Poprawnym zakończeniem jest [close].
+     */
     fun close() {
         closedByUs = true
         open.set(false)
         runCatching { ws?.close(1000, "client close") }
         runCatching { ws = null }
     }
+
+    /** Ile bajtów/wiadomości wysłano (diagnostyka). */
+    @Volatile var sentAudioChunks = 0
+        private set
 
     fun shutdown() {
         close()

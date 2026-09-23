@@ -41,9 +41,16 @@ object ScreenTools {
     }
 
     fun getScreen(): ToolResult {
+        if (!NixiAccessibilityService.isAvailable()) {
+            return ToolResult.fail(
+                "Usługa dostępności NIXI jest wyłączona, więc nie mogę klikać. " +
+                    "Poproś użytkownika, aby włączył ją w Ustawienia → Dostępność → NIXI."
+            )
+        }
         val svc = ScreenCaptureService.instance
             ?: return ToolResult.fail(
-                "Brak podglądu ekranu. Uruchom screen_manual_start i poproś o zgodę."
+                "Brak podglądu ekranu (użytkownik nie dał jeszcze zgody). " +
+                    "Uruchom screen_manual_start i poproś o zgodę na podgląd ekranu."
             )
         val jpeg = svc.screenshotJpeg()
             ?: return ToolResult.fail("Nie udało się pobrać zrzutu ekranu.")
@@ -55,8 +62,12 @@ object ScreenTools {
 
     fun tap(x: Int, y: Int): ToolResult {
         val (w, h) = ToolContext.screenWidthPx to ToolContext.screenHeightPx
-        val xPx = if (x in 0..100 && w > 1000) (x / 100f * w).toInt() else x
-        val yPx = if (y in 0..100 && h > 1000) (y / 100f * h).toInt() else y
+        if (w <= 0 || h <= 0) {
+            return ToolResult.fail("Nie znam rozdzielczości ekranu — najpierw screen_get.")
+        }
+        // Model czasem podaje procenty (0..100) zamiast pikseli — rozpoznajemy oba.
+        val xPx = if (x in 0..100 && w > 1000) (x / 100f * w).toInt() else x.coerceIn(0, w)
+        val yPx = if (y in 0..100 && h > 1000) (y / 100f * h).toInt() else y.coerceIn(0, h)
         val ok = NixiAccessibilityService.instance?.tap(xPx.toFloat(), yPx.toFloat()) ?: false
         if (!ok) {
             return ToolResult.fail(

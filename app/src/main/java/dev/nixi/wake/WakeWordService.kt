@@ -1,5 +1,6 @@
 package dev.nixi.wake
 
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -13,13 +14,14 @@ import dev.nixi.live.LiveSessionService
 import dev.nixi.notif.ActionNotifier
 import dev.nixi.overlay.ConversationActivity
 import dev.nixi.store.LocalStore
+import dev.nixi.ui.MainActivity
 import dev.nixi.util.LogBus
 import kotlinx.coroutines.launch
 
 /**
  * Nasłuch "Hej Nixi" — foreground service z typem microphone.
  * Działa w tle, nad blokadką, po restarcie (BootReceiver) i po zabiciu
- * przez system (STOP_STICKY).
+ * przez system (START_STICKY → [ensureListening] uzbraja mikrofon ponownie).
  *
  * Oszczędność baterii:
  *  - pojedynczy AudioRecord (16 kHz) wspólny z sesją,
@@ -31,6 +33,7 @@ class WakeWordService : Service() {
 
     companion object {
         const val NOTIF_ID = 1001
+
         @Volatile var running = false
             private set
 
@@ -49,64 +52,101 @@ class WakeWordService : Service() {
             }
         }
 
+        fun hasMicPermission(context: Context): Boolean =
+            context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) ==
+                PackageManager.PERMISSION_GRANTED
+
         fun start(context: Context) {
-            if (context.checkSelfPermission("android.permission.RECORD_AUDIO")
-                != PackageManager.PERMISSION_GRANTED
-            ) {
+            val app = context.applicationContext
+            if (!hasMicPermission(app)) {
                 ActionNotifier.notify(
-                    context, "Brak uprawnień do mikrofonu",
-                    "NIXI nie może nasłuchiwać „Hej Nixi”. Uznij uprawnienie w ustawieniach aplikacji.",
+                    app, "Brak uprawnień do mikrofonu",
+                    "NIXI nie może nasłuchiwać „Hej Nixi”. Udziel uprawnienia w ustawieniach aplikacji.",
                     short = true
                 )
                 LogBus.log("wake.start", "brak uprawnienia mikrofonu", "warn")
                 return
             }
+            ensureEngineConfigured()
+            ensureCapture()
+            try {
+                app.startForegroundService(Intent(app, WakeWordService::class.java))
+            } catch (t: Throwable) {
+                // Android 12+: zakaz startu FGS z tła (np. zaraz po restarcie telefonu,
+                // w tle przez HyperOS). Pokazujemy powiadomienie z akcją, żeby użytkownik
+                // mógł wznowić nasłuch jednym tapnięciem.
+                LogBus.log("wake.start", "system odmówił startu usługi: ${t.message}", "warn")
+                wakeResumeNotification(app)
+                instance?.stopSelf()
+            }
+        }
+
+        fun ensureEngineConfigured() {
             val mode = if (LocalStore.ecoMode) WakeEngine.Mode.ECO else WakeEngine.Mode.STANDARD
             engine.configure(mode, LocalStore.wakeSensitivity)
             if (LocalStore.wakeTemplates.isNotBlank()) {
-                engine.loadFromJson(LocalStore.wakeTemplates)
+                if (!engine.hasTemplates()) engine.loadFromJson(LocalStore.wakeTemplates)
             }
+        }
+
+        /** Utrzymuje JEDEN wspólny mikrofon uzbrojony na nasłuch. */
+        fun ensureCapture() {
             if (!AudioBus.isRunning()) {
                 AudioBus.start(wakeConsumer)
             } else {
                 AudioBus.setConsumer(wakeConsumer)
             }
-            val intent = Intent(context, WakeWordService::class.java)
-            context.startForegroundService(intent)
         }
 
         fun stop(context: Context) {
             context.stopService(Intent(context, WakeWordService::class.java))
         }
 
-        /** Po zakończeniu sesji wracamy do nasłuchu. */
+        /** Po zakończeniu sesji (albo po rejestracji szablonu) wracamy do nasłuchu. */
         fun restoreWakeConsumer() {
-            if (AudioBus.isRunning()) AudioBus.setConsumer(wakeConsumer)
+            if (!LocalStore.wakeEnabled) return
+            ensureEngineConfigured()
+            ensureCapture()
+        }
+
+        /** Powiadomienie ratunkowe: system nie pozwolił wystartować usługi w tle. */
+        private fun wakeResumeNotification(context: Context) {
+            val pi = PendingIntent.getActivity(
+                context, 91,
+                Intent(context, MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    .putExtra("resume_wake", true),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            ActionNotifier.urgentAction(
+                context,
+                "NIXI: nasłuch wstrzymany",
+                "System nie pozwolił włączyć nasłuchu „Hej Nixi” w tle. Dotknij, aby wznowić.",
+                pi,
+                id = 7010,
+                channel = ActionNotifier.CH_WAKE
+            )
         }
     }
 
     private fun onWakeHit() {
-        if (NixiState.inSession.value) return
+        if (NixiState.inSession.value || LiveSessionService.running) return
         NixiState.wakeHitAt = System.currentTimeMillis()
+        NixiState.wakeTrigger = "wake"
         LogBus.log("wake.hit", "wykryto „Hej Nixi”")
         NixiApp.scope.launch {
-            withIO {
-                // 1) pauza multimediów — zanim cokolwiek innego ruszy
-                dev.nixi.audio.MediaPauseController.pauseAll()
-            }
-            // 2) sesja głosowa (WebSocket Gemini Live)
-            LiveSessionService.start(this@WakeWordService, "wake")
-            // 3) okno z kulą — nad wszystkim, także nad blokadką
+            // 1) pauza multimediów — zanim cokolwiek innego ruszy
+            runCatching { dev.nixi.audio.MediaPauseController.pauseAll() }
+            dev.nixi.NixiState.emit(dev.nixi.NixiState.NixiEvent.SessionStarted("wake"))
+            // 2) okno z kulą — nad wszystkim, także nad blokadką
             val intent = Intent(this@WakeWordService, ConversationActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            // Android 10+ blokuje startActivity z tła; fullScreenIntent na powiadomieniu to legalna scieżka.
             runCatching { startActivity(intent) }
+            // Android 10+ blokuje startActivity z tła; fullScreenIntent na powiadomieniu
+            // to legalna ścieżka (a bez FSI zostaje heads-up).
             ActionNotifier.wakeFullscreen(this@WakeWordService)
-            ActionNotifier.notify(
-                this@WakeWordService, "NIXI aktywowana",
-                "Multimedia wstrzymane. Mów, w czym mogę pomóc.",
-                short = true
-            )
+            // 3) sesja głosowa (WebSocket Gemini Live)
+            LiveSessionService.start(this@WakeWordService, "wake")
         }
     }
 
@@ -123,6 +163,15 @@ class WakeWordService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        if (!hasMicPermission(this)) {
+            LogBus.log("wake.onstart", "brak uprawnienia mikrofonu — zatrzymuję", "warn")
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        // Po restarcie przez system (START_STICKY) proces startuje od zera:
+        // AudioBus i szablony trzeba uzbroić ponownie.
+        ensureEngineConfigured()
+        ensureCapture()
         return START_STICKY
     }
 
@@ -132,15 +181,14 @@ class WakeWordService : Service() {
                 "NIXI nasłuchuje", "„Hej Nixi” — offline, niskie zużycie", NOTIF_ID
             )
             if (android.os.Build.VERSION.SDK_INT >= 29) {
-                startForeground(
-                    NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-                )
+                startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
             } else {
                 startForeground(NOTIF_ID, notif)
             }
         } catch (t: Throwable) {
-            // Np. start usługi z BOOT_COMPLETED na Androidzie 14+ — mikrofon tylko „while in use”.
+            // np. mikrofon zabroniony w tle (Android 14+, start z BOOT_COMPLETED)
             LogBus.log("wake.fgs", "startForeground nieudany: ${t.message}", "warn")
+            wakeResumeNotification(this)
             stopSelf()
         }
     }
@@ -150,7 +198,7 @@ class WakeWordService : Service() {
         running = false
         instance = null
         NixiState.wakeActive.value = false
-        // bez sesji wyłączamy wspólny rekord (oszczędność)
+        // bez sesji wyłączamy wspólny rekord (oszczędność baterii i prywatność)
         if (!NixiState.inSession.value && !LiveSessionService.running) {
             AudioBus.stop()
         }
@@ -158,9 +206,4 @@ class WakeWordService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
-
-    private inline fun withIO(crossinline block: () -> Unit) {
-        // pauseAll jest szybkie (best-effort); robimy to poza pętlą UI
-        block()
-    }
 }

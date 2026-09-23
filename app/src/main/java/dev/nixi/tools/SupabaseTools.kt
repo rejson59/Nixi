@@ -98,8 +98,12 @@ object SupabaseTools {
      */
     suspend fun ddlPropose(sql: String): ToolResult {
         val clean = sql.trim().trimEnd(';')
-        if (!Regex("""(?i)^(CREATE|ALTER|DROP)""").matches(clean.lineSequence().first())) {
-            return ToolResult.fail("Podaj poprawne SQL (CREATE / ALTER).")
+        if (clean.isBlank()) return ToolResult.fail("Podaj SQL (CREATE / ALTER).")
+        // `matches` wymaga pełnego dopasowania CAŁEGO stringa — „CREATE TABLE x (...)"
+        // nigdy go nie przechodziło, więc DDL zawsze kończył się błędem.
+        val firstStatement = clean.lineSequence().firstOrNull().orEmpty().trim()
+        if (!Regex("""(?i)\b(CREATE|ALTER|DROP)\b""").containsMatchIn(firstStatement)) {
+            return ToolResult.fail("Podaj poprawne SQL (CREATE / ALTER / DROP).")
         }
         dev.nixi.NixiState.pendingSql.value = clean
         LogBus.log("db.ddl.proposed", clean.take(200))

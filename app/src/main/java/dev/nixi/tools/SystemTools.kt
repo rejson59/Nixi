@@ -25,15 +25,9 @@ object SystemTools {
                     intArrayOf(BatteryManager.BATTERY_STATUS_CHARGING, BatteryManager.BATTERY_STATUS_FULL)
             else -> false
         }
-        val tm = ctx.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-        val data = try {
-            tm.dataState == TelephonyManager.DATA_CONNECTED
-        } catch (_: Exception) {
-            true
-        }
         return ToolResult.ok(
             "Data: ${TimeUtils.fullNow()}. Bateria: ${level}%${if (charging) " (ładowanie)" else ""}. " +
-                "Internet: ${if (data) "tak" else "brak (WiFi sprawdzaj osobno)" }."
+                "Internet: ${networkState(ctx)}."
         )
     }
 
@@ -134,6 +128,23 @@ object SystemTools {
             if (it.ok) ToolResult.ok("Zaktualizowałam profil: ${keep.keys().asSequence().joinToString(", ") { it }}.")
             else ToolResult.fail("Błąd zapisu: ${it.error}")
         } ?: ToolResult.fail("Błąd: Supabase")
+    }
+
+    /** „WiFi”, „komórka”, „brak” — czytelne dla modelu i dla użytkownika. */
+    private fun networkState(ctx: Context): String = try {
+        val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE)
+            as android.net.ConnectivityManager
+        val net = cm.activeNetwork
+        val caps = net?.let { cm.getNetworkCapabilities(it) }
+        when {
+            caps == null -> "brak"
+            caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) -> "WiFi"
+            caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) -> "komórka"
+            caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) -> "kabel"
+            else -> "inne"
+        }
+    } catch (_: Throwable) {
+        "nieznany"
     }
 
     fun isListenerEnabled(): Boolean {

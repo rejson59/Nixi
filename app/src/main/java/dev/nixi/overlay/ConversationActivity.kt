@@ -2,6 +2,7 @@ package dev.nixi.overlay
 
 import android.app.Activity
 import android.content.Intent
+import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -11,20 +12,23 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -38,8 +42,6 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -50,43 +52,55 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.media.projection.MediaProjectionManager
 import androidx.core.view.WindowCompat
 import dev.nixi.NixiState
-import dev.nixi.R
 import dev.nixi.live.LiveSessionService
 import dev.nixi.screen.ScreenCaptureService
 import dev.nixi.store.LocalStore
 import dev.nixi.tools.SpotifyApi
 import dev.nixi.ui.components.NixiOrb
-import dev.nixi.ui.theme.NixiBg
 import dev.nixi.ui.theme.NixiOk
 import dev.nixi.ui.theme.NixiPurple
 import dev.nixi.ui.theme.NixiSurfaceHi
 import dev.nixi.ui.theme.NixiText
 import dev.nixi.ui.theme.NixiTextDim
-import kotlinx.coroutines.launch
+import dev.nixi.util.LogBus
 
 /**
  * Okno rozmowy NIXI:
- *  - kula slide-in w lewym górnym rogu (nad wszystkim, także nad blokadką),
+ *  - kula w lewym górnym rogu (nad wszystkim, także nad blokadką),
  *  - okna potwierdzeń destrukcyjnych akcji (Tak/Nie),
- *  - konsent MediaProjection + start trybu ręcznego,
- *  - kod parowania Spotify,
+ *  - zgoda MediaProjection dla trybu ręcznego (dokładnie JEDEN raz),
  *  - propozycje DDL (SQL) do wklejenia.
  */
 class ConversationActivity : ComponentActivity() {
+
+    /** Znacznik czasu ostatniego pytania o zgodę (ochrona przed podwójnym dialogiem). */
+    private var lastProjectionAsk = 0L
+
+    private val projectionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            NixiState.manualMode.value = true
+            ScreenCaptureService.start(this, result.resultCode, result.data!!)
+            LiveSessionService.instance?.onScreenConsent()
+            LogBus.log("manual.consent", "tryb ręczny gotowy")
+        } else {
+            // brak zgody: NIXI musi o tym wiedzieć i nie może zostać w stanie „manual”
+            LiveSessionService.instance?.onScreenDenied()
+            LogBus.log("manual.denied", "użytkownik odmówił", "warn")
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -94,28 +108,10 @@ class ConversationActivity : ComponentActivity() {
         setTurnScreenOn(true)
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
-        val projectionLauncher = registerForActivityResult(
-            ActivityResultContracts.StartActivityForResult()
-        ) { result ->
-            if (result.resultCode == Activity.RESULT_OK) {
-                val data = result.data
-                if (data != null) {
-                    ScreenCaptureService.start(this, result.resultCode, data)
-                    LiveSessionService.instance?.onScreenConsent()
-                }
-            }
-        }
-
         setContent {
             ConversationUi(
-                onClose = { finish() },
-                onManualMode = {
-                    val mpm = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-                    NixiState.manualMode.value = true
-                    runCatching {
-                        projectionLauncher.launch(mpm.createScreenCaptureIntent())
-                    }
-                },
+                onClose = { finishSession() },
+                onManualMode = { requestProjection() },
                 onOpenApp = {
                     startActivity(
                         Intent(this, dev.nixi.ui.MainActivity::class.java)
@@ -126,8 +122,30 @@ class ConversationActivity : ComponentActivity() {
         }
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
+    private fun requestProjection() {
+        if (ScreenCaptureService.isRunning()) {
+            NixiState.manualMode.value = true
+            LiveSessionService.instance?.onScreenConsent()
+            return
+        }
+        // Kompozycja potrafi poprosić o zgodę dwa razy w tej samej klatce
+        // (dwa efekty) — dlatego chronimy się krótkim oknem czasowym
+        // zamiast wiecznym „już pytaliśmy”.
+        val now = System.currentTimeMillis()
+        if (now - lastProjectionAsk < 3000) return
+        lastProjectionAsk = now
+        val mpm = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        runCatching { projectionLauncher.launch(mpm.createScreenCaptureIntent()) }
+            .onFailure {
+                LogBus.log("manual.ask", "nie mogę pokazać dialogu: ${it.message}", "warn")
+                LiveSessionService.instance?.onScreenDenied()
+            }
+    }
+
+    /** Zamknięcie okna = grzeczny koniec sesji (sprząta mikrofon i media). */
+    private fun finishSession() {
+        LiveSessionService.stop(this, "użytkownik zamknął okno")
+        finish()
     }
 }
 
@@ -138,7 +156,6 @@ fun ConversationUi(
     onOpenApp: () -> Unit,
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val state by NixiState.orb.collectAsState()
     val micLevel by NixiState.micLevel.collectAsState()
     val speakLevel by NixiState.speakLevel.collectAsState()
@@ -146,51 +163,21 @@ fun ConversationUi(
     val pending by NixiState.pendingActions.collectAsState()
     val lastTool by NixiState.lastToolLine.collectAsState()
     val pendingSql by NixiState.pendingSql.collectAsState()
+    val tpm by NixiState.tpm.collectAsState()
 
-    // Narzędzie screen_manual_start tylko ustawia manualMode — tu faktycznie
-    // prosimy o systemową zgodę na podgląd ekranu (inaczej nie pojawiłaby się nigdy).
+    val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val cutout = WindowInsets.displayCutout.asPaddingValues()
+    val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
+    // JEDNA reakcja na żądanie trybu ręcznego (bez podwójnych dialogów).
     LaunchedEffect(manual) {
-        if (manual && ScreenCaptureService.instance == null) onManualMode()
-    }
-
-    // kod Spotify (z narzędzia spotify_connect)
-    var spotifyCode by remember { mutableStateOf<String?>(null) }
-    var spotifyMsg by remember { mutableStateOf("") }
-    LaunchedEffect(Unit) {
-        NixiState.events.collect { e ->
-            when (e) {
-                is NixiState.NixiEvent.ToolDone ->
-                    if (e.name == "spotify_connect" && e.ok) {
-                        spotifyCode = SpotifyApi.deviceFlowUserCode
-                        spotifyMsg = SpotifyApi.deviceFlowUri
-                    }
-                else -> Unit
-            }
-        }
-    }
-    // po znalezieniu kodu: automatyczny polling
-    LaunchedEffect(spotifyCode) {
-        spotifyCode ?: return@LaunchedEffect
-        val result = SpotifyApi.pollDeviceFlow()
-        spotifyCode = null
-        dev.nixi.notif.ActionNotifier.notify(context, "NIXI: Spotify", result, short = true)
-    }
-
-    // automatyczne poproszenie o podgląd ekranu (tryb ręczny bez zgody)
-    var askingScreen by remember { mutableStateOf(false) }
-    LaunchedEffect(manual) {
-        if (manual && !ScreenCaptureService.isRunning() && !askingScreen) {
-            askingScreen = true
-            onManualMode()
-            dev.nixi.util.LogBus.log("manual.ask", "konsent MediaProjection")
-            kotlinx.coroutines.delay(4000)
-            askingScreen = false
-        }
+        if (manual && !ScreenCaptureService.isRunning()) onManualMode()
     }
 
     val level = when (state) {
         NixiState.OrbState.SPEAKING -> speakLevel
         NixiState.OrbState.LISTENING -> micLevel
+        NixiState.OrbState.MANUAL -> micLevel
         else -> 0f
     }
 
@@ -203,38 +190,45 @@ fun ConversationUi(
         Column(
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .padding(start = 16.dp, top = 40.dp)
+                .padding(
+                    start = 16.dp + cutout.calculateStartPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
+                    top = 24.dp + topInset,
+                )
         ) {
-            NixiOrb(
-                size = 128.dp,
-                state = state,
-                level = level,
-            )
+            NixiOrb(size = 116.dp, state = state, level = level)
             Spacer(Modifier.height(6.dp))
             Text(
                 "NIXI",
                 color = NixiText,
                 fontWeight = FontWeight.Bold,
                 fontSize = 20.sp,
-                modifier = Modifier.padding(start = 34.dp),
+                modifier = Modifier.padding(start = 30.dp),
             )
             Spacer(Modifier.height(4.dp))
             StatusChip(state, lastTool)
+            if (tpm.limit > 0) {
+                Text(
+                    "tokeny: ${tpm.used}/${tpm.limit}" +
+                        if (tpm.backoffSec > 0) " • pauza ${tpm.backoffSec}s" else "",
+                    color = if (tpm.percent > 90) Color(0xFFFFC46B) else NixiTextDim,
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(start = 12.dp, top = 4.dp),
+                )
+            }
         }
 
         // ── Dolny pasek ──────────────────────────────────────
         Row(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 28.dp),
+                .padding(bottom = 20.dp + bottomInset),
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            RoundButton(icon = { Icon(Icons.Filled.TouchApp, null) }, label = "ręczny",
+            RoundButton(icon = Icons.Filled.TouchApp, label = "ręczny",
                 onClick = onManualMode, highlighted = manual)
-            RoundButton(icon = { Icon(Icons.Filled.Home, null) }, label = "aplikacja",
-                onClick = onOpenApp)
-            RoundButton(icon = { Icon(Icons.Filled.Close, null) }, label = "koniec",
-                onClick = onClose, highlighted = false, danger = true)
+            RoundButton(icon = Icons.Filled.Home, label = "aplikacja", onClick = onOpenApp)
+            RoundButton(icon = Icons.Filled.Close, label = "koniec",
+                onClick = onClose, danger = true)
         }
 
         // ── Propozycja SQL (DDL) ─────────────────────────────
@@ -244,7 +238,7 @@ fun ConversationUi(
             exit = fadeOut(tween(250)),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 108.dp),
+                .padding(bottom = 100.dp + bottomInset),
         ) {
             Surface(
                 shape = RoundedCornerShape(16.dp),
@@ -321,6 +315,19 @@ fun ConversationUi(
         )
     }
 
+    // Kod parowania Spotify (Device Flow) — tylko gdy serwer zwrócił kod.
+    var spotifyCode by remember {
+        mutableStateOf(SpotifyApi.deviceFlowUserCode.takeIf { it.isNotBlank() })
+    }
+    var spotifyMsg by remember { mutableStateOf(SpotifyApi.deviceFlowUri) }
+    LaunchedEffect(Unit) {
+        NixiState.events.collect { e ->
+            if (e is NixiState.NixiEvent.ToolDone && e.name == "spotify_connect" && e.ok) {
+                spotifyCode = SpotifyApi.deviceFlowUserCode.takeIf { it.isNotBlank() }
+                spotifyMsg = SpotifyApi.deviceFlowUri
+            }
+        }
+    }
     if (spotifyCode != null) {
         AlertDialog(
             onDismissRequest = { spotifyCode = null },
@@ -338,12 +345,14 @@ fun ConversationUi(
                 }
             },
             confirmButton = {
-                TextButton(onClick = {
-                    runCatching {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(spotifyMsg)))
+                if (spotifyMsg.isNotBlank()) {
+                    TextButton(onClick = {
+                        runCatching {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(spotifyMsg)))
+                        }
+                    }) {
+                        Text("Otwórz stronę", color = NixiPurple)
                     }
-                }) {
-                    Text("Otwórz stronę", color = NixiPurple)
                 }
             },
             dismissButton = {
@@ -363,18 +372,9 @@ private fun supabaseProjectRef(): String {
     }
 }
 
-private object ClipboardManagerCompat {
-    fun set(context: android.content.Context, text: String) {
-        val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
-            as android.content.ClipboardManager
-        cm.setPrimaryClip(android.content.ClipData.newPlainText("nixi-sql", text))
-        dev.nixi.util.LogBus.log("sql.copy", "skopiowano do schowka")
-    }
-}
-
 @Composable
 private fun RoundButton(
-    icon: @Composable () -> Unit,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     onClick: () -> Unit,
     highlighted: Boolean = false,
@@ -396,11 +396,7 @@ private fun RoundButton(
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                imageVector = when {
-                    danger -> Icons.Filled.Close
-                    highlighted -> Icons.Filled.TouchApp
-                    else -> Icons.Filled.Home
-                },
+                imageVector = icon,
                 contentDescription = label,
                 tint = if (highlighted) Color.White else NixiText,
             )
@@ -418,7 +414,7 @@ private fun StatusChip(state: NixiState.OrbState, lastTool: String) {
         NixiState.OrbState.THINKING -> "myślę…" to NixiPurple
         NixiState.OrbState.SPEAKING -> "odpowiadam" to NixiPurple
         NixiState.OrbState.MANUAL -> "tryb ręczny — steruję ekranem" to NixiPurple
-        NixiState.OrbState.TPM_LIMIT -> "limit tokeni — pauza" to Color(0xFFFFC46B)
+        NixiState.OrbState.TPM_LIMIT -> "limit tokenów — pauza" to Color(0xFFFFC46B)
         NixiState.OrbState.ERROR -> "błąd" to Color(0xFFFF7A7A)
     }
     Surface(

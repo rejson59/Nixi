@@ -56,6 +56,8 @@ import dev.nixi.accessibility.NixiAccessibilityService
 import dev.nixi.notif.NixiNotificationListener
 import dev.nixi.store.LocalStore
 import dev.nixi.ui.components.NixiOrb
+import dev.nixi.ui.components.rememberOnResumeTick
+import dev.nixi.util.DeviceTweaks
 import dev.nixi.ui.theme.NixiBg
 import dev.nixi.ui.theme.NixiOk
 import dev.nixi.ui.theme.NixiPurple
@@ -73,6 +75,9 @@ fun OnboardingScreen(onFinish: () -> Unit) {
     val context = LocalContext.current
     var step by remember { mutableStateOf(0) }
     LaunchedEffect(Unit) { EnrollmentController.reset() }
+    // Wracamy z ustawień systemowych (onboarding krok 5) — bez tego checklista
+    // pokazywała stan sprzed zmiany.
+    rememberOnResumeTick()
 
     Column(
         modifier = Modifier
@@ -221,6 +226,8 @@ private fun StepWakeWord(onNext: () -> Unit) {
 @Composable
 private fun StepPermissions(onNext: () -> Unit) {
     val context = LocalContext.current
+    // powrót z ustawień systemowych => świeży stan uprawnień
+    val resumeTick = rememberOnResumeTick()
     var refresh by remember { mutableStateOf(0) }
     val micLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -231,8 +238,9 @@ private fun StepPermissions(onNext: () -> Unit) {
     val notifGranted = Build.VERSION.SDK_INT < 33 ||
         context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
         PackageManager.PERMISSION_GRANTED
-    val listenerOn = NixiNotificationListener.isEnabled(context)
-    val a11yOn = NixiAccessibilityService.isAvailable()
+    val listenerOn = remember(resumeTick, refresh) { NixiNotificationListener.isEnabled(context) }
+    val a11yOn = remember(resumeTick, refresh) { NixiAccessibilityService.isAvailable() }
+    val batteryFree = remember(resumeTick) { DeviceTweaks.isIgnoringBatteryOptimizations(context) }
 
     Title("Uprawnienia")
     Text(
@@ -278,6 +286,20 @@ private fun StepPermissions(onNext: () -> Unit) {
                     Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 )
+            }
+            refresh++
+        },
+    )
+    PermRow(
+        title = "Praca w tle bez ograniczeń",
+        desc = if (DeviceTweaks.isXiaomi)
+            "HyperOS: bateria bez ograniczeń + autostart (inaczej nasłuch padnie)"
+        else "Bateria bez ograniczeń, aby nasłuch działał cały czas",
+        granted = batteryFree,
+        actionLabel = "Ustaw",
+        onAction = {
+            if (!DeviceTweaks.openBatterySaver(context)) {
+                runCatching { context.startActivity(DeviceTweaks.appDetails(context)) }
             }
             refresh++
         },

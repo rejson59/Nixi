@@ -71,10 +71,17 @@ object EnrollmentController {
 
     private fun finishAttempt() {
         recordJob?.cancel()
+        // Mikrofon wracał tylko wtedy, gdy usługa nasłuchu działała dalej — a
+        // AudioBus.stop() gasił go bezpowrotnie do restartu aplikacji.
+        // Teraz zawsze oddajemy mikrofon tam, gdzie ma wrócić.
+        val listeningWasOn = LocalStore.wakeEnabled
         AudioBus.stop()
-        // wznowienie nasłuchu (jeśli działa usługa)
-        if (WakeWordService.running) {
-            WakeWordService.restoreWakeConsumer()
+        if (listeningWasOn) {
+            if (WakeWordService.running) {
+                WakeWordService.restoreWakeConsumer()
+            } else {
+                WakeWordService.start(dev.nixi.NixiApp.ctx())
+            }
         }
         val s = _state.value
         if (!s.recording) return
@@ -109,5 +116,5 @@ object EnrollmentController {
     }
 
     private val lastBuffer = ShortArray(16000 * 2)
-    private var lastLen = 0
+    @Volatile private var lastLen = 0
 }

@@ -45,6 +45,7 @@ import dev.nixi.store.LocalStore
 import dev.nixi.tools.SpotifyApi
 import dev.nixi.ui.SessionLauncher
 import dev.nixi.ui.components.NixiOrb
+import dev.nixi.ui.components.rememberOnResumeTick
 import dev.nixi.ui.theme.NixiBg
 import dev.nixi.ui.theme.NixiOk
 import dev.nixi.ui.theme.NixiPurple
@@ -63,8 +64,12 @@ fun HomeScreen() {
     val wake by NixiState.wakeActive.collectAsState()
     var recent by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var loadingRecent by remember { mutableStateOf(true) }
+    val tpm by NixiState.tpm.collectAsState()
+    val audioError by NixiState.lastAudioError.collectAsState()
+    val inSession by NixiState.inSession.collectAsState()
+    val tick = rememberOnResumeTick()
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(tick) {
         val rows = SupabaseHub.recentConversations(8)
         recent = rows
         loadingRecent = false
@@ -125,6 +130,56 @@ fun HomeScreen() {
                     "nasłuch CPU: ${LocalStore.wakeCpuMsPerMin} ms/min",
                     Modifier.weight(1f)
                 )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                InfoChip(
+                    if (inSession) "sesja: trwa" else "sesja: brak",
+                    Modifier.weight(1f)
+                )
+                InfoChip(
+                    if (tpm.limit > 0) "tokeny: ${tpm.used}/${tpm.limit}" else "tokeny: —",
+                    Modifier.weight(1f)
+                )
+            }
+        }
+
+        if (audioError.isNotBlank()) {
+            item {
+                Surface(
+                    color = Color(0xFF2A1220),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text("Problem z mikrofonem", color = NixiWarn,
+                            fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                        Text(audioError, color = NixiTextDim, fontSize = 12.sp)
+                        Text(
+                            "Jeśli to zajęty mikrofon (rozmowa, dyktafon), NIXI wznowi nasłuch sama.",
+                            color = NixiTextDim, fontSize = 11.sp,
+                        )
+                    }
+                }
+            }
+        }
+
+        item {
+            if (!LocalStore.wakeEnabled) {
+                Surface(
+                    color = NixiSurface,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        "Nasłuch „Hej Nixi” jest wyłączony — włącz go w Ustawieniach, " +
+                            "żeby NIXI reagowała na głos.",
+                        color = NixiWarn, fontSize = 12.sp,
+                        modifier = Modifier.padding(12.dp),
+                    )
+                }
             }
         }
 

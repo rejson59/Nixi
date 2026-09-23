@@ -45,7 +45,9 @@ object LogBus {
         deque.addFirst(entry)
         while (deque.size > MAX_ENTRIES) deque.removeLast()
         // fire-and-forget: logi NIGDY nie mogą zablokować krytycznej ścieżki
-        if (SupabaseHub.isConfigured()) {
+        // (ani wywalić aplikacji, gdy LocalStore nie jest jeszcze gotowy)
+        val configured = runCatching { SupabaseHub.isConfigured() }.getOrDefault(false)
+        if (configured) {
             scope.launch {
                 runCatching { SupabaseHub.insertLog(entry) }
                     .onFailure { /* cisza — logi tła nie mogą logować logów */ }

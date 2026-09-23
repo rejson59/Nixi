@@ -37,6 +37,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -85,29 +86,36 @@ fun TableDetailScreen(table: String, onBack: () -> Unit) {
     val canEdit = a.edit && SupabaseHub.available
     val canDelete = a.delete && SupabaseHub.available
 
+    var tick by remember(table) { mutableStateOf(0) }
+
+    /** Odświeżenie danych (bez pieczenia zapytań w kompozycji). */
     fun load() {
+        // wracamy na pierwszą stronę i wymuszamy pobranie
+        offset = 0
+        tick++
+    }
+
+    LaunchedEffect(table, offset, tick) {
         loading = true
         error = ""
-        scope.launch {
-            val r = runCatching {
-                SupabaseHub.c().listRows(table, limit = 25, offset = offset)
-            }.getOrElse {
-                error = it.message ?: "błąd"
-                loading = false
-                return@launch
-            }
-            if (!r.ok) {
-                error = r.error ?: "błąd"
-            } else {
-                rows = r.rows
-                if (columns.isEmpty() && r.rows.isNotEmpty()) {
-                    columns = r.rows.first().keys().asSequence().toList()
-                }
-            }
+        val r = runCatching {
+            SupabaseHub.c().listRows(table, limit = 25, offset = offset)
+        }.getOrElse {
+            error = it.message ?: "błąd"
             loading = false
+            null
         }
+        if (r == null) return@LaunchedEffect
+        if (!r.ok) {
+            error = r.error ?: "błąd"
+        } else {
+            rows = if (offset == 0) r.rows else rows + r.rows
+            if (columns.isEmpty() && r.rows.isNotEmpty()) {
+                columns = r.rows.first().keys().asSequence().toList()
+            }
+        }
+        loading = false
     }
-    load()
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -215,10 +223,7 @@ fun TableDetailScreen(table: String, onBack: () -> Unit) {
         if (rows.size >= 25) {
             item {
                 Button(
-                    onClick = {
-                        offset += 25
-                        load()
-                    },
+                    onClick = { offset += 25 },
                     colors = ButtonDefaults.buttonColors(containerColor = NixiPurple),
                     shape = RoundedCornerShape(10.dp),
                 ) { Text("Więcej wierszy") }

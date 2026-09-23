@@ -44,8 +44,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.nixi.NixiApp
 import dev.nixi.NixiState
 import dev.nixi.db.SupabaseHub
+import dev.nixi.notif.NixiNotificationListener
+import dev.nixi.notif.ReminderScheduler
 import dev.nixi.store.LocalStore
 import dev.nixi.ui.home.HomeScreen
 import dev.nixi.ui.logs.LogsScreen
@@ -58,6 +61,7 @@ import dev.nixi.ui.theme.NixiText
 import dev.nixi.ui.theme.NixiTextDim
 import dev.nixi.ui.theme.NixiTheme
 import dev.nixi.wake.WakeWordService
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
@@ -88,6 +92,15 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         SupabaseHub.refreshAll()
+        // 1) nasłuch ma działać zawsze, gdy jest włączony w ustawieniach
+        if (LocalStore.onboarded && LocalStore.wakeEnabled && !WakeWordService.running) {
+            WakeWordService.start(this)
+        }
+        // 2) HyperOS/system mógł wyczyścić alarmy (force-stop) — odtwórz przypomnienia
+        NixiApp.scope.launch {
+            runCatching { ReminderScheduler.rescheduleAll(applicationContext) }
+            runCatching { NixiNotificationListener.instance?.refreshRules() }
+        }
     }
 }
 

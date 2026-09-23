@@ -37,11 +37,17 @@ class ScreenCaptureService : Service() {
 
         fun isRunning(): Boolean = instance != null
 
-        fun start(ctx: android.content.Context, resultCode: Int, data: Intent) {
+        fun start(ctx: android.content.Context, resultCode: Int, data: Intent): Boolean {
             val intent = Intent(ctx, ScreenCaptureService::class.java)
                 .putExtra(EXTRA_RESULT_CODE, resultCode)
                 .putExtra(EXTRA_DATA, data)
-            ctx.startForegroundService(intent)
+            return try {
+                ctx.startForegroundService(intent)
+                true
+            } catch (t: Throwable) {
+                LogBus.log("screen.start", "nie mogę wystartować usługi: ${t.message}", "error")
+                false
+            }
         }
 
         fun stop(ctx: android.content.Context) {
@@ -94,20 +100,32 @@ class ScreenCaptureService : Service() {
             return
         }
         projection = proj
-        val reader = android.media.ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2)
-        imageReader = reader
-        size.set(w to h)
-        virtualDisplay = proj.createVirtualDisplay(
-            "NixiScreen", w, h, dpi,
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-            reader.surface, null, handler
-        )
+        // Android 14+ wymaga zarejestrowania callbacku PRZED createVirtualDisplay —
+        // inaczej system rzuca SecurityException i tryb ręczny nie startuje.
         proj.registerCallback(object : MediaProjection.Callback() {
             override fun onStop() {
-                LogBus.log("screen.projection", "consent wycofany")
+                LogBus.log("screen.projection", "konsent wycofany przez system/użytkownika")
                 stopSelf()
             }
         }, handler)
+        val reader = android.media.ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2)
+        imageReader = reader
+        size.set(w to h)
+        virtualDisplay = try {
+            proj.createVirtualDisplay(
+                "NixiScreen", w, h, dpi,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                reader.surface, null, handler
+            )
+        } catch (t: Throwable) {
+            LogBus.log("screen.projection", "createVirtualDisplay: ${t.message}", "error")
+            runCatching { proj.stop() }
+            projection = null
+            runCatching { reader.close() }
+            imageReader = null
+            stopSelf()
+            return
+        }
         LogBus.log("screen.start", "projekcja aktywna ${w}x$h")
     }
 
@@ -172,6 +190,8 @@ class ScreenCaptureService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        // najpierw zwalniamy wątek zadań (ImageReader/VirtualDisplay żyją na handlerze)
+        runCatching { handler.removeCallbacksAndMessages(null) }
         if (instance === this) instance = null
         runCatching { virtualDisplay?.release() }
         virtualDisplay = null
