@@ -47,7 +47,7 @@ object PostSessionMemory {
     private object NixiAppScopeMem {
         fun launch(block: suspend () -> Unit) {
             kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).let { s ->
-                s.launch(block)
+                s.launch { block() }
             }
         }
     }

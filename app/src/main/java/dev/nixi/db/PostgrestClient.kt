@@ -1,5 +1,6 @@
 package dev.nixi.db
 
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -60,7 +61,7 @@ class PostgrestClient(private val projectUrl: String, private val key: String) {
         prefer: String? = null,
     ): Result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         try {
-            val ub = okhttp3.HttpUrl.get(base() + path).newBuilder()
+            val ub = (base() + path).toHttpUrl().newBuilder()
             for ((k, v) in query) ub.addQueryParameter(k, v)
             val url = ub.build()
             val bodyBytes: okhttp3.RequestBody? = when {
