@@ -35,6 +35,15 @@ object NixiState {
     /** Czy aktywny jest tryb ręczny (ekran). */
     val manualMode = MutableStateFlow(false)
 
+    /**
+     * W tej rozmowie użytkownik już potwierdził destrukcyjną akcję —
+     * kolejne usunięcia idą bez okna (dopóki sesja trwa).
+     */
+    val sessionTrusted = MutableStateFlow(false)
+
+    /** Model poprosił o podgląd ekranu — okno rozmowy pokaże dialog systemowy RAZ. */
+    val wantScreenCapture = MutableStateFlow(false)
+
     /** Akcje oczekujące na potwierdzenie użytkownika (np. usuwanie). */
     data class PendingAction(
         val id: String,

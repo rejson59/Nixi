@@ -338,6 +338,10 @@ i tak działa niezależnie od wywołania długim przytrzymaniem).
 
 ## Historia zmian (skrót)
 
+- **1.3.5** — mniej pytań i fałszywych „błędów”: NIXI nie pyta głosem
+  o zgodę, okno potwierdzenia tylko przy usuwaniu (pierwsze „Tak” starcza
+  na resztę rozmowy), tryb ręczny nie odpala nagrania ekranu przy zwykłych
+  zadaniach, powiadomienia o narzędziach milczą w trakcie sesji.
 - **1.3.4** — po starcie sesji NIXI sama się wita (koniec ciszy, gdy VAD
   nie złapie pierwszego słowa); usługa dostępności ma opis i
   `canRetrieveWindowContent` (HyperOS przestaje zgłaszać ją jako martwą);

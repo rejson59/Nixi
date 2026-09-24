@@ -83,6 +83,14 @@ object ActionNotifier {
      * (bez dźwięku, bez badge'a).
      */
     fun notify(context: Context, title: String, text: String, short: Boolean = false) {
+        // W trakcie rozmowy overlay i tak pokazuje akcję — powiadomienia
+        // wyglądały jak „milion błędów” i wymagały odklikania.
+        if (short &&
+            dev.nixi.store.LocalStore.quietDuringSession &&
+            dev.nixi.NixiState.inSession.value
+        ) {
+            return
+        }
         ensureChannels()
         if (context.checkSelfPermission("android.permission.POST_NOTIFICATIONS") !=
             android.content.pm.PackageManager.PERMISSION_GRANTED

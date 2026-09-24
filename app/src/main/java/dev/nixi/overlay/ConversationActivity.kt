@@ -189,9 +189,10 @@ fun ConversationUi(
     val cutout = WindowInsets.displayCutout.asPaddingValues()
     val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
+    val wantCapture by NixiState.wantScreenCapture.collectAsState()
     // JEDNA reakcja na żądanie trybu ręcznego (bez podwójnych dialogów).
-    LaunchedEffect(manual) {
-        if (manual && !ScreenCaptureService.isRunning()) onManualMode()
+    LaunchedEffect(manual, wantCapture) {
+        if ((manual || wantCapture) && !ScreenCaptureService.isRunning()) onManualMode()
     }
 
     val level = when (state) {
@@ -406,8 +407,16 @@ fun ConversationUi(
             title = { Text(p.title, color = NixiText) },
             text = { Text(p.detail, color = NixiTextDim) },
             confirmButton = {
-                TextButton(onClick = { LiveSessionService.confirm(p.id, true) }) {
-                    Text("Tak, wykonaj", color = NixiOk)
+                Column(horizontalAlignment = Alignment.End) {
+                    TextButton(onClick = { LiveSessionService.confirm(p.id, true) }) {
+                        Text("Tak, wykonaj", color = NixiOk)
+                    }
+                    TextButton(onClick = {
+                        NixiState.sessionTrusted.value = true
+                        LiveSessionService.confirm(p.id, true)
+                    }) {
+                        Text("Tak, i nie pytaj już", color = NixiPurple)
+                    }
                 }
             },
             dismissButton = {

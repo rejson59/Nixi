@@ -84,6 +84,8 @@ fun SettingsScreen() {
     var playRate by remember { mutableStateOf(LocalStore.playRate) }
     var volume by remember { mutableStateOf(LocalStore.outputVolume) }
     var ding by remember { mutableStateOf(LocalStore.dingEnabled) }
+    var trustDeletes by remember { mutableStateOf(LocalStore.trustDeletes) }
+    var quietSession by remember { mutableStateOf(LocalStore.quietDuringSession) }
 
     var wakeOn by remember { mutableStateOf(LocalStore.wakeEnabled) }
     var sensitivity by remember { mutableStateOf(LocalStore.wakeSensitivity) }
@@ -232,6 +234,20 @@ fun SettingsScreen() {
                         value = volume, range = 0.3f..1f, onChange = { volume = it },
                     )
                     SwitchRow("Dźwięk „mów” (ding po aktywacji)", ding) { ding = it }
+                    SwitchRow(
+                        "Usuwaj bez pytania (kalendarz, budzik, wiersze)",
+                        trustDeletes,
+                    ) {
+                        trustDeletes = it
+                        LocalStore.trustDeletes = it
+                    }
+                    SwitchRow(
+                        "Ciche akcje w rozmowie (bez powiadomień o każdym narzędziu)",
+                        quietSession,
+                    ) {
+                        quietSession = it
+                        LocalStore.quietDuringSession = it
+                    }
                     Spacer(Modifier.height(12.dp))
                     PillButton(
                         text = "Zapisz głos",

@@ -234,6 +234,8 @@ class LiveSessionService : Service() {
 
     private fun beginSession() {
         NixiState.inSession.value = true
+        NixiState.sessionTrusted.value = LocalStore.trustDeletes
+        NixiState.wantScreenCapture.value = false
         NixiState.lastToolLine.value = ""
         sessionStart = System.currentTimeMillis()
         lastUserActivity = sessionStart
@@ -813,6 +815,8 @@ class LiveSessionService : Service() {
                 cancelAllDecisions()
                 NixiState.pendingActions.value = emptyList()
                 NixiState.inSession.value = false
+                NixiState.sessionTrusted.value = false
+                NixiState.wantScreenCapture.value = false
                 NixiState.manualMode.value = false
                 NixiState.orbState.value = NixiState.OrbState.IDLE
                 // 2) dźwięk i sieć
@@ -889,6 +893,8 @@ class LiveSessionService : Service() {
             cancelAllDecisions()
             NixiState.pendingActions.value = emptyList()
             NixiState.inSession.value = false
+            NixiState.sessionTrusted.value = false
+            NixiState.wantScreenCapture.value = false
             NixiState.manualMode.value = false
             NixiState.orbState.value = NixiState.OrbState.IDLE
             runCatching { player.stop() }

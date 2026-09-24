@@ -24,6 +24,10 @@ class NixiApp : Application() {
         super.onCreate()
         app = this
         LocalStore.init(this)
+        // nowy zestaw zasad wykonania (bez pytań głosem) — nie trzymaj starego promptu
+        if (!LocalStore.promptStatic.contains("ZASADY WYKONANIA")) {
+            LocalStore.promptStaticAt = 0L
+        }
         SupabaseHub.init(this)
         ActionNotifier.init(this)
         // narzędzia mogą być wołane z tła (ciche reguły, przypomnienia) —

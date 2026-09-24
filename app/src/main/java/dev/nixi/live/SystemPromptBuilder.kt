@@ -85,13 +85,15 @@ object SystemPromptBuilder {
     }
 
     private fun defaultStatic(): String =
-        Tables.DEFAULT_SYSTEM_PROMPT + "\nJesteś NIXI, osobistą asystentką. Mów po polsku, zwięźle.\n"
+        Tables.DEFAULT_SYSTEM_PROMPT + Tables.EXECUTION_RULES +
+            "\nJesteś NIXI, osobistą asystentką. Mów po polsku, zwięźle.\n"
 
     private suspend fun fetchStatic(): String {
         val sb = StringBuilder()
         runCatching { SupabaseHub.loadAdmin() }
 
-        sb.append(SupabaseHub.admin("system_prompt", Tables.DEFAULT_SYSTEM_PROMPT)).append("\n\n")
+        sb.append(SupabaseHub.admin("system_prompt", Tables.DEFAULT_SYSTEM_PROMPT)).append("\n")
+        sb.append(Tables.EXECUTION_RULES).append("\n")
         val language = SupabaseHub.admin("language", "polski")
         val name = SupabaseHub.admin("assistant_name", "NIXI")
         sb.append("Język domyślny: $language. Twoje imię: $name.\n")

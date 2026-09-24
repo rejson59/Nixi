@@ -149,6 +149,19 @@ object LocalStore {
         get() = prefs.getBoolean("onboarded", false)
         set(v) = prefs.edit().putBoolean("onboarded", v).apply()
 
+    /**
+     * True = NIXI usuwa (kalendarz, budzik, wiersz) bez okna potwierdzenia.
+     * Domyślnie false: pierwsze „Tak” w rozmowie wystarcza na resztę sesji.
+     */
+    var trustDeletes: Boolean
+        get() = prefs.getBoolean("trust_deletes", false)
+        set(v) = prefs.edit().putBoolean("trust_deletes", v).apply()
+
+    /** True = nie spamuj powiadomieniami o każdej akcji podczas rozmowy. */
+    var quietDuringSession: Boolean
+        get() = prefs.getBoolean("quiet_during_session", true)
+        set(v) = prefs.edit().putBoolean("quiet_during_session", v).apply()
+
     /** Cache persona + profilu użytkownika (żeby sesja startowała od razu). */
     var promptStatic: String
         get() = prefs.getString("prompt_static", "") ?: ""

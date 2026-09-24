@@ -16,9 +16,10 @@ import dev.nixi.util.ScreenCoords
 object ScreenTools {
 
     fun manualStart(): ToolResult {
-        NixiState.manualMode.value = true
         val svc = ScreenCaptureService.instance
         return if (svc != null) {
+            NixiState.manualMode.value = true
+            NixiState.wantScreenCapture.value = false
             ToolContext.screenWidthPx = svc.displaySize().first
             ToolContext.screenHeightPx = svc.displaySize().second
             NixiAppScope.onManualModeReady()
@@ -27,9 +28,13 @@ object ScreenTools {
                     "Używaj screen_get, screen_tap, screen_swipe, screen_text. Kończ przez screen_manual_stop."
             )
         } else {
+            // Nie ustawiamy manualMode z góry — to odpalało dialog nagrania ekranu
+            // przy KAŻDYM wywołaniu narzędzia, nawet gdy zgoda już leciała.
+            NixiState.wantScreenCapture.value = true
             ToolResult.ok(
-                "Poprosiłam użytkownika o zezwolenie na podgląd ekranu — czekam na zgodę. " +
-                    "Gdy ją da, powtórz screen_manual_start."
+                "Czekam na jednorazową zgodę na podgląd ekranu (systemowy dialog). " +
+                    "Jak użytkownik zatwierdzi, powtórz screen_manual_start. " +
+                    "Nie pytaj o to głosem."
             )
         }
     }
