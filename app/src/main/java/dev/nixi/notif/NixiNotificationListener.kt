@@ -121,6 +121,24 @@ class NixiNotificationListener : NotificationListenerService() {
                 }
             }
 
+            "reminder" -> {
+                val whenTxt = action.optString("when", "za 30 min")
+                val titleR = action.optString("title").ifBlank { title.ifBlank { text.take(80) } }
+                if (titleR.isBlank()) return
+                val r = dev.nixi.tools.ReminderTools.add(titleR, whenTxt)
+                if (r.ok) {
+                    ActionNotifier.notify(app, "NIXI: cicha akcja", r.text, short = true)
+                    LogBus.log("rule.reminder", titleR)
+                }
+            }
+
+            "memory" -> {
+                val fact = action.optString("fact").ifBlank { "$title $text".trim() }
+                if (fact.isBlank()) return
+                val r = dev.nixi.tools.MemoryTools.store(fact, action.optString("category", "powiadomienia"))
+                if (r.ok) LogBus.log("rule.memory", fact.take(80))
+            }
+
             else -> LogBus.log("rule.unknown", "typ: $type", "warn")
         }
     }

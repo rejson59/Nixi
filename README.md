@@ -338,6 +338,10 @@ i tak działa niezależnie od wywołania długim przytrzymaniem).
 
 ## Historia zmian (skrót)
 
+- **1.3.7** — NIXI sama szuka (pogoda, Wikipedia, liczenie), znajduje
+  telefon (głośność+wibracja), ciche reguły umieją też przypomnienie i
+  pamięć. Ekran główny schudł: jedna kula, jeden przycisk, bez diagnostyki
+  na siłę. Usuwanie bez pytania jest domyślne.
 - **1.3.6** — sterowanie telefonem jednym narzędziem `phone` (głośność,
   jasność, latarka, minutnik, mapy, schowek, dialer, SMS, dzwonek,
   zrzut/blokada ekranu, lista aplikacji) + twardsze otwieranie aplikacji

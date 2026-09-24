@@ -17,7 +17,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Chat
-import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -68,7 +67,6 @@ fun HomeScreen() {
     val wake by NixiState.wakeActive.collectAsState()
     var recent by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var loadingRecent by remember { mutableStateOf(true) }
-    val tpm by NixiState.tpm.collectAsState()
     val audioError by NixiState.lastAudioError.collectAsState()
     val inSession by NixiState.inSession.collectAsState()
     val sessionError by NixiState.lastSessionError.collectAsState()
@@ -129,30 +127,18 @@ fun HomeScreen() {
         }
 
         item {
-            Row(
+            PillButton(
+                text = "Rozmów",
+                icon = Icons.Filled.Chat,
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                PillButton(
-                    text = "Rozmów",
-                    icon = Icons.Filled.Chat,
-                    modifier = Modifier.weight(1f),
-                    onClick = { SessionLauncher.start(context, "button") },
-                )
-                PillButton(
-                    text = "Tryb ręczny",
-                    icon = Icons.Filled.TouchApp,
-                    filled = false,
-                    modifier = Modifier.weight(1f),
-                    onClick = { SessionLauncher.start(context, "manual", manual = true) },
-                )
-            }
+                onClick = { SessionLauncher.start(context, "button") },
+            )
         }
 
         item {
             SectionCard(
                 title = "Rozmowa z Gemini",
-                subtitle = if (inSession) "Sesja trwa." else "Sprawdź, czy NIXI ma wszystko, czego potrzebuje.",
+                subtitle = if (inSession) "Sesja trwa." else "Kula albo „Hej Nixi” — resztą zajmuje się ona.",
                 accent = when {
                     sessionError.isNotBlank() -> dev.nixi.ui.theme.NixiErr
                     checkItems.isEmpty() -> NixiPurple
@@ -273,38 +259,19 @@ fun HomeScreen() {
         }
 
         item {
-            SectionCard(
-                title = "Stan NIXI",
-                subtitle = "Skrót tego, co widzi asystentka.",
-            ) {
+            SectionCard(title = "Stan") {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    GlassChip("model: ${LocalStore.geminiModel}", Modifier.weight(1f))
                     GlassChip(
-                        text = "Supabase: ${if (SupabaseHub.available) "połączono" else "brak"}",
+                        text = if (wake) "nasłuch" else "cisza",
+                        dot = if (wake) NixiOk else NixiWarn,
+                    )
+                    GlassChip(
+                        text = if (SupabaseHub.available) "pamięć" else "brak bazy",
                         dot = if (SupabaseHub.available) NixiOk else NixiTextDim,
-                        modifier = Modifier.weight(1f),
                     )
-                }
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    GlassChip(
-                        text = "Spotify: ${if (SpotifyApi.isConnected()) "połączono" else "brak"}",
-                        dot = if (SpotifyApi.isConnected()) NixiOk else NixiTextDim,
-                        modifier = Modifier.weight(1f),
-                    )
-                    GlassChip("nasłuch: ${LocalStore.wakeCpuMsPerMin} ms/min", Modifier.weight(1f))
-                }
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    GlassChip(
-                        text = if (inSession) "sesja: trwa" else "sesja: brak",
-                        dot = if (inSession) NixiOk else NixiTextDim,
-                        modifier = Modifier.weight(1f),
-                    )
-                    GlassChip(
-                        text = if (tpm.limit > 0) "tokeny: ${tpm.used}/${tpm.limit}" else "tokeny: —",
-                        modifier = Modifier.weight(1f),
-                    )
+                    if (SpotifyApi.isConnected()) {
+                        GlassChip("Spotify", dot = NixiOk)
+                    }
                 }
             }
         }

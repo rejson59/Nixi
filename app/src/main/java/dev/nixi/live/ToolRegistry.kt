@@ -11,6 +11,7 @@ import dev.nixi.tools.SpotifyApi
 import dev.nixi.tools.SpotifyTools
 import dev.nixi.tools.SupabaseTools
 import dev.nixi.tools.SystemTools
+import dev.nixi.tools.LookupTools
 import dev.nixi.tools.PhoneTools
 import dev.nixi.tools.ReminderTools
 import dev.nixi.tools.ToolResult
@@ -49,13 +50,19 @@ object ToolRegistry {
         add("open_app", "Otwórz aplikację telefonu po nazwie.", mapOf("app" to s("nazwa aplikacji")), listOf("app"))
         add(
             "phone",
-            "Sterowanie telefonem. Akcje: status, volume, brightness, torch, timer, web, maps, clipboard, dial, sms, share, ringer, screenshot, lock, apps, settings, vibrate. Zwykłe zadania (głośność, latarka, minutnik, wyszukiwanie) rób TYM narzędziem, nie trybem ręcznym.",
+            "Sterowanie telefonem. Akcje: status, volume, brightness, torch, timer, web, maps, clipboard, dial, sms, share, ringer, screenshot, lock, apps, settings, vibrate, find. Zwykłe zadania rób TYM narzędziem, nie trybem ręcznym.",
             mapOf(
-                "action" to s("status|volume|brightness|torch|timer|web|maps|clipboard|dial|sms|share|ringer|screenshot|lock|apps|settings|vibrate"),
+                "action" to s("status|volume|brightness|torch|timer|web|maps|clipboard|dial|sms|share|ringer|screenshot|lock|apps|settings|vibrate|find"),
                 "value" to s("np. 50, mute, 5 min, numer, zapytanie, on/off"),
                 "extra" to s("opcjonalnie: strumień (music/ring), treść SMS, etykieta minutnika"),
             ),
             listOf("action"),
+        )
+        add(
+            "lookup",
+            "Sama znajdź odpowiedź (pogoda, fakt z Wikipedii, szybkie liczenie). NIE otwieraj przeglądarki — użytkownik ma usłyszeć wynik.",
+            mapOf("query" to s("pytanie, miasto, wyrażenie")),
+            listOf("query"),
         )
         add("user_profile", "Pokaż profil użytkownika (tabela users).", emptyMap(), emptyList())
         add("user_profile_update", "Zaktualizuj profil użytkownika (np. notes, display_name).",

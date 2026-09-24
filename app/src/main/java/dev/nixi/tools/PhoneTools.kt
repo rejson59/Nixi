@@ -44,11 +44,12 @@ object PhoneTools {
             "apps", "aplikacje" -> listApps(value)
             "settings", "ustawienia" -> openSettings(value)
             "vibrate", "wibruj" -> vibrate()
+            "find", "znajdz", "znajdź" -> findPhone()
             "notifications_clear", "wycisc", "wyczyść" -> clearNotifications()
             else -> ToolResult.fail(
                 "Nie znam akcji „$action”. Dostępne: status, volume, brightness, torch, " +
                     "timer, web, maps, clipboard, dial, sms, share, ringer, screenshot, " +
-                    "lock, apps, settings, vibrate."
+                    "lock, apps, settings, vibrate, find."
             )
         }
     } catch (t: Throwable) {
@@ -282,6 +283,22 @@ object PhoneTools {
         }
         launch(Intent(action))
         return ToolResult.ok("Otworzyłam ustawienia${if (page.isNotBlank()) " ($page)" else ""}.")
+    }
+
+    /** Głośno + wibracja — „gdzie jest telefon”. */
+    private fun findPhone(): ToolResult {
+        val am = audio()
+        am.setStreamVolume(
+            AudioManager.STREAM_MUSIC,
+            am.getStreamMaxVolume(AudioManager.STREAM_MUSIC),
+            AudioManager.FLAG_SHOW_UI or AudioManager.FLAG_PLAY_SOUND,
+        )
+        am.ringerMode = AudioManager.RINGER_MODE_NORMAL
+        repeat(3) {
+            vibrate()
+            try { Thread.sleep(350) } catch (_: InterruptedException) { }
+        }
+        return ToolResult.ok("Daję znać — maksymalna głośność i wibracja.")
     }
 
     private fun vibrate(): ToolResult {

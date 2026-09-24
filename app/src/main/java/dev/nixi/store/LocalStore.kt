@@ -154,7 +154,7 @@ object LocalStore {
      * Domyślnie false: pierwsze „Tak” w rozmowie wystarcza na resztę sesji.
      */
     var trustDeletes: Boolean
-        get() = prefs.getBoolean("trust_deletes", false)
+        get() = prefs.getBoolean("trust_deletes", true)
         set(v) = prefs.edit().putBoolean("trust_deletes", v).apply()
 
     /** True = nie spamuj powiadomieniami o każdej akcji podczas rozmowy. */
