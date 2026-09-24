@@ -111,8 +111,9 @@ class WakeEngine {
 
     private var lastHitAt = 0L
     private var lastStage2At = 0L
+    private var lastCandidateAt = 0L
+    private var stage2Count = 0
     private var votes = 0
-    private var lastVoteAt = 0L
     private var pendingSig: FloatArray? = null
     private var pendingSince = 0L
 
@@ -128,14 +129,29 @@ class WakeEngine {
         /** Ile jeszcze liczymy klatki po zamknięciu bramki (ogon frazy). */
         private const val TAIL_MS = 400
 
-        /** Odstęp między ocenami drugiego stopnia (oszczędza CPU). */
-        private const val STAGE2_MIN_GAP_MS = 30L
+        /** Odstęp między ocenami drugiego stopnia (w czasie AUDIO, oszczędza CPU). */
+        private const val STAGE2_MIN_GAP_MS = 60L
 
-        /** Potwierdzenie: dwa trafienia ≥100 ms od siebie, w oknie 1,5 s. */
-        private const val VOTE_GAP_MS = 100L
-        private const val VOTE_WINDOW_MS = 1500L
+        /**
+         * Ile kolejnych dobrych okien trzeba, by uznać trafienie.
+         * To nasz odpowiednik wygładzania posteriorów w dekoderze Google:
+         * jedno przypadkowe okno nie może wywołać asystenta, muszą być dwa.
+         */
+        private const val REQUIRED_VOTES = 2
 
-        /** Po trafieniu przez chwilę nie reagujemy. */
+        /**
+         * Budżet ocen drugiego stopnia na jedno „podejście". Bez niego długie
+         * podobne do frazy fragmenty mowy mogłyby zjeść CPU: każda ocena to
+         * kilka DTW po kilkaset klatek. Po sekundzie bez kandydata licznik
+         * zaczyna się od nowa.
+         */
+        private const val MAX_STAGE2_PER_UTTERANCE = 24
+        private const val PACKET_GAP_MS = 1000L
+
+        /** Po tym czasie niepotwierdzony kandydat idzie na listę negatywów. */
+        private const val PENDING_TTL_MS = 1500L
+
+        /** Po trafieniu przez chwilę nie reagujemy (w czasie AUDIO). */
         private const val COOLDOWN_MS = 12_000L
 
         /** Historia cech: 2,5 s przy hop 10 ms. */
@@ -172,6 +188,7 @@ class WakeEngine {
         tailFrames = 0
         silenceTick = 0
         votes = 0
+        stage2Count = 0
         pendingSig = null
         vad.reset()
         model.derive(bands, stride, timeResample)
@@ -265,6 +282,10 @@ class WakeEngine {
         if (!ring.read(from, scratch, need)) return false
         val frameOffset = if (pos > 0) 1 else 0
 
+        // czas AUDIO tej ramki — wszystkie progi czasowe detektora liczymy
+        // w tym zegarze, więc decyzje nie zależą od obciążenia telefonu
+        expirePending(pos / 16L)
+
         val db = vad.levelDb(scratch, frameOffset, MelFrontend.WINDOW_SAMPLES)
         val wasOpen = vad.open
         val open = vad.update(db)
@@ -310,7 +331,12 @@ class WakeEngine {
             val need = if (p > 0) MelFrontend.WINDOW_SAMPLES + 1 else MelFrontend.WINDOW_SAMPLES
             if (ring.read(from, scratch, need)) {
                 val feat = frontend.computeFrame(scratch, if (p > 0) 1 else 0)
-                pushFrames(feat)
+                // UWAGA: tło trzeba odjąć także tutaj. Bez tego klatki z bufora
+                // miałyby inną skalę niż reszta (i niż szablon z rejestracji),
+                // bo tam cechy też są po odjęciu tła — DTW porównywałby dwie
+                // różne reprezentacje i fraza zaczynająca się od razu na
+                // początku nagrania nie byłaby rozpoznawana.
+                pushFrames(floor.subtract(feat))
             }
             p += hopSamples
         }
@@ -341,76 +367,77 @@ class WakeEngine {
 
     private fun evaluate(pos: Long): Boolean {
         if (!model.hasTemplates()) return false
-        val now = System.currentTimeMillis()
-        if (now - lastHitAt < COOLDOWN_MS) return false
+        val nowMs = pos / 16L
+        if (nowMs - lastHitAt < COOLDOWN_MS) return false
 
         // STAGE 1 — tani, ciągły, wysoka czułość
         val d1 = stage1Distance() ?: return false
         if (d1 > model.stage1Threshold(sensitivity)) {
-            expirePending(now)
+            votes = 0
             return false
         }
         stats.stage1Candidates++
 
-        // STAGE 2 — dokładny, tylko po kandydacie
-        if (now - lastStage2At < STAGE2_MIN_GAP_MS) return false
-        lastStage2At = now
-        val nowMs = (pos / 16L)
+        // nowe „podejście" do frazy — budżet ocen startuje od zera
+        if (nowMs - lastCandidateAt > PACKET_GAP_MS) stage2Count = 0
+        lastCandidateAt = nowMs
+
+        // STAGE 2 — dokładny, tylko po kandydacie i tylko w rozsądnym tempie
+        if (nowMs - lastStage2At < STAGE2_MIN_GAP_MS) return false
+        if (stage2Count >= MAX_STAGE2_PER_UTTERANCE) return false
+        lastStage2At = nowMs
+        stage2Count++
+
         val check = stage2Verify() ?: return false
         stats.stage2Runs++
         stats.lastStage2Score = check.score
         stats.lastSpread = model.spreadStage2
         val thr2 = model.stage2Threshold(sensitivity)
         if (check.score > thr2) {
-            // Histereza: wyraźnie zły kandydat kasuje głosy potwierdzenia,
-            // czyli „wycofujemy" nadzieję, że to ta fraza
-            if (check.score > thr2 * 1.3) {
-                votes = 0
-                pendingSig = null
-            }
-            expirePending(now)
+            // okno nie pasuje — głosy przepadają, a kandydat, który wcześniej
+            // wyglądał dobrze, trafia na listę negatywów
+            votes = 0
+            expirePending(nowMs)
             return false
         }
         stats.stage2Passed++
 
         // TRZECI FILTR — podpis mówcy i nauczone negatywy
         val sig = check.signature
-        model.speakerSimilarity(sig)?.let { sim ->
-            if (sim < model.sigThreshold) {
-                stats.rejectsSpeaker++
-                LogBus.log(
-                    "wake.reject",
-                    "podpis %.2f < %.2f — to nie Twoje „Hej Nixi”".format(sim, model.sigThreshold),
-                    "ok"
-                )
-                expirePending(now)
-                return false
-            }
+        val sim = model.speakerSimilarity(sig)
+        if (sim != null && sim < model.sigThreshold) {
+            stats.rejectsSpeaker++
+            votes = 0
+            LogBus.log(
+                "wake.reject",
+                "podpis %.2f < %.2f — to nie Twoje „Hej Nixi”".format(sim, model.sigThreshold),
+                "ok"
+            )
+            expirePending(nowMs)
+            return false
         }
         if (model.looksLikeNegative(sig)) {
             stats.rejectsNegative++
+            votes = 0
             LogBus.log("wake.reject", "wygląda jak znane fałszywe trafienie", "ok")
-            expirePending(now)
+            expirePending(nowMs)
             return false
         }
 
-        // POTWIERDZENIE — odpowiednik wygładzania posteriorów w dekoderze
-        if (nowMs - lastVoteAt >= VOTE_GAP_MS) {
-            votes = if (nowMs - lastVoteAt <= VOTE_WINDOW_MS) votes + 1 else 1
-            lastVoteAt = nowMs
-            pendingSig = sig
-            pendingSince = now
-        }
-        if (votes >= 2) {
+        // POTWIERDZENIE — dopiero dwa kolejne dobre okna uznajemy za trafienie
+        votes++
+        pendingSig = sig
+        pendingSince = nowMs
+        if (votes >= REQUIRED_VOTES) {
             votes = 0
             pendingSig = null
             stats.hits++
-            lastHitAt = now
+            lastHitAt = nowMs
             frames.clear()
             s1frames.clear()
             LogBus.log(
                 "wake.hit",
-                "potwierdzone: wynik=%.2f próg=%.2f rozrzut=%.3f".format(
+                "potwierdzone: wynik=%.2f próg=%.2f rozdzielczość=%.3f".format(
                     check.score, thr2, model.spreadStage2
                 )
             )
@@ -420,13 +447,14 @@ class WakeEngine {
     }
 
     /**
-     * Kandydat, który nie doczekał się potwierdzenia, jest dla nas cenną
-     * informacją: to niemal na pewno fałszywe trafienie. Zapisujemy jego podpis
-     * jako negatyw, żeby drugi raz nie dał się nabrać (uczenie na urządzeniu).
+     * Kandydat, który nie doczekał się potwierdzenia, jest cenną informacją:
+     * to niemal na pewno fałszywe trafienie. Zapisujemy jego podpis na listę
+     * negatywów, żeby drugi raz nie dał się nabrać — odpowiednik douczania
+     * hotwordu przykładami negatywnymi. Wołane dla każdej ramki, także w ciszy.
      */
-    private fun expirePending(now: Long) {
+    private fun expirePending(nowMs: Long) {
         val sig = pendingSig ?: return
-        if (now - pendingSince < VOTE_WINDOW_MS) return
+        if (nowMs - pendingSince < PENDING_TTL_MS) return
         model.addNegative(sig)
         stats.rejectsNoConfirm++
         pendingSig = null
