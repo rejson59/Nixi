@@ -131,9 +131,11 @@ object ToolRegistry {
             emptyMap(), emptyList())
         add("screen_manual_stop", "Wyłącz tryb ręczny (po zakończeniu zadania).", emptyMap(), emptyList())
         add("screen_get", "Pobierz zrzut ekranu (zobacz gdzie kliknąć).", emptyMap(), emptyList())
-        add("screen_tap", "Kliknij punkt ekranu.",
-            mapOf("x" to i("x w pikselach"), "y" to i("y w pikselach")), listOf("x", "y"))
-        add("screen_swipe", "Przesuń (scroll/pull).",
+        add("screen_tap", "Kliknij punkt ekranu. Podawaj PIKSELE; jeśli podasz obie " +
+            "współrzędne w zakresie 0..100, potraktuję je jako procenty ekranu.",
+            mapOf("x" to i("x w pikselach (0..100 = procent)"), "y" to i("y w pikselach (0..100 = procent)")),
+            listOf("x", "y"))
+        add("screen_swipe", "Przesuń (scroll/pull). Piksele (0..100 w obu osiach = procenty).",
             mapOf("x1" to i(""), "y1" to i(""), "x2" to i(""), "y2" to i(""), "duration_ms" to i("domyślnie 350")),
             listOf("x1", "y1", "x2", "y2"))
         add("screen_text", "Wpisz tekst do aktywnego pola.", mapOf("text" to s("tekst")), listOf("text"))

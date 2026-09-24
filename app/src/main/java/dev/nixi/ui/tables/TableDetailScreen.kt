@@ -1,7 +1,6 @@
 package dev.nixi.ui.tables
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,7 +16,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -25,35 +23,29 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.nixi.db.DiscoveredTables
 import dev.nixi.db.SupabaseHub
+import dev.nixi.ui.components.PillButton
+import dev.nixi.ui.components.SectionCard
+import dev.nixi.ui.components.glass
 import dev.nixi.ui.onboarding.NixiField
-import dev.nixi.ui.theme.NixiBg
-import dev.nixi.ui.theme.NixiOk
 import dev.nixi.ui.theme.NixiPurple
 import dev.nixi.ui.theme.NixiSurface
 import dev.nixi.ui.theme.NixiText
@@ -85,33 +77,40 @@ fun TableDetailScreen(table: String, onBack: () -> Unit) {
     val canEdit = a.edit && SupabaseHub.available
     val canDelete = a.delete && SupabaseHub.available
 
+    var tick by remember(table) { mutableStateOf(0) }
+
+    /** Odświeżenie danych (bez pieczenia zapytań w kompozycji). */
     fun load() {
+        // wracamy na pierwszą stronę i wymuszamy pobranie
+        offset = 0
+        tick++
+    }
+
+    LaunchedEffect(table, offset, tick) {
         loading = true
         error = ""
-        scope.launch {
-            val r = runCatching {
-                SupabaseHub.c().listRows(table, limit = 25, offset = offset)
-            }.getOrElse {
-                error = it.message ?: "błąd"
-                loading = false
-                return@launch
-            }
-            if (!r.ok) {
-                error = r.error ?: "błąd"
-            } else {
-                rows = r.rows
-                if (columns.isEmpty() && r.rows.isNotEmpty()) {
-                    columns = r.rows.first().keys().asSequence().toList()
-                }
-            }
+        val r = runCatching {
+            SupabaseHub.c().listRows(table, limit = 25, offset = offset)
+        }.getOrElse {
+            error = it.message ?: "błąd"
             loading = false
+            null
         }
+        if (r == null) return@LaunchedEffect
+        if (!r.ok) {
+            error = r.error ?: "błąd"
+        } else {
+            rows = if (offset == 0) r.rows else rows + r.rows
+            if (columns.isEmpty() && r.rows.isNotEmpty()) {
+                columns = r.rows.first().keys().asSequence().toList()
+            }
+        }
+        loading = false
     }
-    load()
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item {
@@ -119,35 +118,42 @@ fun TableDetailScreen(table: String, onBack: () -> Unit) {
                 IconButton(onClick = onBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, "Wróć", tint = NixiText)
                 }
-                Text(
-                    table,
-                    color = NixiText,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                OutlinedButton(onClick = { load() }) { Text("Odśwież", color = NixiPurple, fontSize = 12.sp) }
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        table,
+                        color = NixiText,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 20.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        if (rows.isEmpty()) "wiersze tabeli" else "wierszy: ${rows.size}",
+                        color = NixiTextDim, fontSize = 11.sp,
+                    )
+                }
+                PillButton(text = "Odśwież", filled = false, onClick = { load() })
                 if (canEdit) {
-                    OutlinedButton(onClick = {
-                        newIdValue = ""
-                        newValues = emptyMap()
-                        newOpen = true
-                    }) {
-                        Icon(Icons.Filled.Add, null, tint = NixiPurple)
-                    }
+                    Spacer(Modifier.width(8.dp))
+                    PillButton(
+                        text = "Dodaj",
+                        icon = Icons.Filled.Add,
+                        onClick = {
+                            newIdValue = ""
+                            newValues = emptyMap()
+                            newOpen = true
+                        },
+                    )
                 }
             }
         }
 
         item {
-            // dostęp NIXI
-            Surface(color = NixiSurface, shape = RoundedCornerShape(10.dp),
-                modifier = Modifier.fillMaxWidth()) {
-                Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    Text("Dostęp NIXI:", color = NixiTextDim, fontSize = 12.sp)
+            SectionCard(
+                title = "Dostęp NIXI do tej tabeli",
+                subtitle = "Decyduje, co asystentka może zrobić bez pytania.",
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                     ToggleSwitch("czyta", a.read) {
                         scope.launch { SupabaseHub.setAccess(table, it, a.edit, a.delete) }
                     }
@@ -172,14 +178,14 @@ fun TableDetailScreen(table: String, onBack: () -> Unit) {
         }
 
         items(rows) { row ->
-            Surface(
-                color = NixiSurface,
-                shape = RoundedCornerShape(12.dp),
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { editRow = row },
+                    .glass(shape = RoundedCornerShape(16.dp), strong = true)
+                    .clickable { editRow = row }
+                    .padding(12.dp),
             ) {
-                Column(Modifier.padding(12.dp)) {
+                Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         val idVal = row.optString("id", "")
                         Text(
@@ -214,14 +220,11 @@ fun TableDetailScreen(table: String, onBack: () -> Unit) {
 
         if (rows.size >= 25) {
             item {
-                Button(
-                    onClick = {
-                        offset += 25
-                        load()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = NixiPurple),
-                    shape = RoundedCornerShape(10.dp),
-                ) { Text("Więcej wierszy") }
+                PillButton(
+                    text = "Więcej wierszy",
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { offset += 25 },
+                )
             }
         }
         item { Spacer(Modifier.height(8.dp)) }

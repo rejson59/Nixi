@@ -8,6 +8,7 @@ import dev.nixi.audio.MediaPauseController
 import dev.nixi.live.LiveSessionService
 import dev.nixi.notif.ActionNotifier
 import dev.nixi.overlay.ConversationActivity
+import kotlinx.coroutines.launch
 
 /** Start sesji głosowej z aplikacji (przycisk "Rozmów" / "Tryb ręczny"). */
 object SessionLauncher {
@@ -31,7 +32,11 @@ object SessionLauncher {
             return
         }
         if (manual) NixiState.manualMode.value = true
-        MediaPauseController.pauseAll()
+        // pauza multimediów to wywołania binderowe — trzymamy je z dala od
+        // wątku głównego (ryzyko ANR przy wolnym menedżerze sesji)
+        dev.nixi.NixiApp.scope.launch {
+            runCatching { MediaPauseController.pauseAll() }
+        }
         LiveSessionService.start(context, trigger)
         context.startActivity(
             Intent(context, ConversationActivity::class.java)

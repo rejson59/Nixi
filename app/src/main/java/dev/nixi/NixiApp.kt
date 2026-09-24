@@ -26,6 +26,9 @@ class NixiApp : Application() {
         LocalStore.init(this)
         SupabaseHub.init(this)
         ActionNotifier.init(this)
+        // narzędzia mogą być wołane z tła (ciche reguły, przypomnienia) —
+        // kontekst aplikacji musi być gotowy od pierwszej chwili
+        dev.nixi.tools.ToolContext.app = this
 
         // Błędy globalne -> tabela "errors" (best effort, nigdy nie blokujemy aplikacji)
         val previous = Thread.getDefaultUncaughtExceptionHandler()
@@ -39,5 +42,55 @@ class NixiApp : Application() {
         }
 
         ActionNotifier.ensureChannels()
+
+        // Detektor „Hej Nixi" po przebudowie (kaskada mel) nie rozumie starego
+        // szablonu Goertzla. Sprawdzamy to od razu, żeby użytkownik zobaczył
+        // prośbę o ponowne nagranie, a nie ciszę. Bez parsowania JSON-a:
+        // nowy format zawsze zawiera wersję 2.
+        runCatching {
+            val t = LocalStore.wakeTemplates
+            if (t.isNotBlank() && !t.contains("\"v\":2")) LocalStore.wakeNeedsEnroll = true
+        }
+
+        // Piesek nasłuchu (co 15 min) — HyperOS potrafi ubić usługę, gdy
+        // aplikacja jest zamknięta, a wtedy nikt by jej nie podniósł.
+        runCatching { dev.nixi.boot.WakeWatchdog.arm(this) }
+            .onFailure { dev.nixi.util.LogBus.log("watchdog", it.message ?: "?", "warn") }
+
+        // Struktura bazy: „niech same się utworzą”. Po starcie (spokojnie,
+        // żeby nie konkurować o sieć z pierwszymi zapytaniami) sprawdzamy,
+        // których tabel brakuje, i próbujemy je założyć — bez pytania
+        // użytkownika o cokolwiek, jeśli tylko mamy do tego prawo.
+        scope.launch {
+            kotlinx.coroutines.delay(3000)
+            runCatching {
+                if (LocalStore.supabaseUrl.isNotBlank() && LocalStore.supabaseKey.isNotBlank()) {
+                    val st = dev.nixi.db.DbProvisioner.check()
+                    if (st.missing.isNotEmpty()) {
+                        val out = dev.nixi.db.DbProvisioner.provision()
+                        dev.nixi.util.LogBus.log(
+                            "db.provision",
+                            "auto: ${st.summary} → ${out.message}",
+                            if (out.ok) "info" else "warn"
+                        )
+                    }
+                }
+            }
+        }
+
+        // Zaległe zapisy z kolejki offline (pamięć/logi z czasu bez sieci).
+        scope.launch {
+            runCatching { dev.nixi.db.OfflineQueue.flush(this@NixiApp) }
+                .onFailure { dev.nixi.util.LogBus.log("queue.flush", it.message ?: "?", "warn") }
+        }
+
+        // Diagnostyka audio na ekranie głównym (np. „mikrofon zajęty przez rozmowę”).
+        scope.launch {
+            dev.nixi.NixiState.events.collect { e ->
+                if (e is dev.nixi.NixiState.NixiEvent.ErrorHappened && e.tag == "audio") {
+                    dev.nixi.NixiState.lastAudioError.value = e.message
+                }
+            }
+        }
     }
 }

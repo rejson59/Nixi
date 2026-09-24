@@ -130,6 +130,19 @@ class PostgrestClient(private val projectUrl: String, private val key: String) {
         return rawBody("POST", "/" + table, body, "return=representation,resolution=ignore-duplicates")
     }
 
+    /**
+     * Upsert (INSERT ... ON CONFLICT). Konieczne, bo PATCH nie powie nam, czy
+     * trafił w istniejący wiersz: bez tego „update, a jak nie to insert”
+     * kończyło się cichym brakiem zapisu nowych kluczy (patrz: fakty, admin).
+     */
+    suspend fun upsert(table: String, row: JSONObject, onConflict: String): Result =
+        request(
+            "POST", "/" + table,
+            query = mapOf("on_conflict" to onConflict),
+            body = row,
+            prefer = "return=representation,resolution=merge-duplicates"
+        )
+
     suspend fun update(table: String, filters: Map<String, String>, row: JSONObject): Result =
         request("PATCH", "/" + table, filters, row, "return=representation")
 

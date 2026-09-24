@@ -21,6 +21,12 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
 
+    <!--
+      Wyłączenie optymalizacji baterii dla NIXI (HyperOS/MIUI ubija aplikacje
+      w tle). System pokaże zwykły systemowy dialog — użytkownik może odmówić.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
     <!-- Otwieranie aplikacji po nazwie — listowanie pakietów z etykietami (Android 11+) -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
@@ -35,6 +41,7 @@
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
+        android:enableOnBackInvokedCallback="true"
         android:supportsRtl="true"
         android:theme="@style/Theme.Nixi"
         android:usesCleartextTraffic="false"
@@ -123,6 +130,15 @@
             </intent-filter>
         </activity>
 
+        <!-- piesek: sprawdza, czy nasłuch „Hej Nixi” nadal żyje (HyperOS) -->
+        <receiver
+            android:name=".boot.WatchdogReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="dev.nixi.WATCHDOG" />
+            </intent-filter>
+        </receiver>
+
         <!-- przypomnienia: dokładne alarmy -->
         <receiver
             android:name=".notif.ReminderReceiver"
@@ -134,6 +150,7 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
 

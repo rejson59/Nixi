@@ -2,6 +2,8 @@ package dev.nixi.ui.tables
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,22 +15,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -37,10 +31,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -48,18 +44,18 @@ import dev.nixi.NixiState
 import dev.nixi.db.DiscoveredTables
 import dev.nixi.db.PostgrestClient
 import dev.nixi.db.SupabaseHub
-import dev.nixi.db.Tables
+import dev.nixi.ui.components.PillButton
+import dev.nixi.ui.components.ScreenHeader
+import dev.nixi.ui.components.SectionCard
+import dev.nixi.ui.components.glass
 import dev.nixi.ui.onboarding.NixiField
-import dev.nixi.ui.theme.NixiBg
-import dev.nixi.ui.theme.NixiOk
 import dev.nixi.ui.theme.NixiPurple
+import dev.nixi.ui.theme.NixiPurpleDeep
 import dev.nixi.ui.theme.NixiSurface
-import dev.nixi.ui.theme.NixiSurfaceHi
 import dev.nixi.ui.theme.NixiText
 import dev.nixi.ui.theme.NixiTextDim
 import dev.nixi.ui.theme.NixiWarn
 import kotlinx.coroutines.launch
-import org.json.JSONObject
 
 /**
  * Pełny przegląd tabel Supabase: odczyt / edycja / dodawanie / usuwanie
@@ -97,35 +93,38 @@ fun TablesScreen() {
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(20.dp),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Tabele", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = NixiText)
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    if (tables.isNotEmpty()) "${allTables.size} (odkryto: ${tables.size})"
-                    else "brak odkrycia — użyj przycisku poniżej",
-                    color = NixiTextDim, fontSize = 12.sp,
-                )
-                Spacer(Modifier.weight(1f))
-                OutlinedButton(onClick = {
-                    scope.launch {
-                        if (SupabaseHub.available) {
-                            SupabaseHub.refreshAll()
+            ScreenHeader(
+                title = "Tabele",
+                subtitle = if (tables.isNotEmpty())
+                    "Widzę ${allTables.size} tabel (odkryto ${tables.size})."
+                else "Nie widzę tabel — użyj „Odkryj ponownie”.",
+                trailing = {
+                    PillButton(text = "Odkryj ponownie", filled = false, onClick = {
+                        scope.launch {
+                            if (SupabaseHub.available) {
+                                SupabaseHub.refreshAll(force = true)
+                            }
                         }
-                    }
-                }) { Text("Odkryj ponownie", color = NixiPurple, fontSize = 12.sp) }
-            }
+                    })
+                },
+            )
         }
         if (!SupabaseHub.available) {
             item {
-                Text(
-                    "Supabase nie jest skonfigurowany — ustaw URL i klucz w Ustawieniach. " +
-                        "Lista poniżej to znane tabele NIXI.",
-                    color = NixiWarn, fontSize = 12.sp,
-                )
+                SectionCard(
+                    title = "Supabase nie jest skonfigurowany",
+                    subtitle = "Ustaw URL i klucz w Ustawieniach → Dane.",
+                    accent = NixiWarn,
+                ) {
+                    Text(
+                        "Lista poniżej to znane tabele NIXI — bez połączenia nie wczytam wierszy.",
+                        color = NixiTextDim, fontSize = 12.sp,
+                    )
+                }
             }
         }
         if (pendingSql.isNotBlank()) {
@@ -136,13 +135,22 @@ fun TablesScreen() {
             }
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedButton(onClick = { newTableDlg = true }) {
-                    Text("Nowa tabela (DDL)", color = NixiPurple, fontSize = 12.sp)
-                }
-                OutlinedButton(onClick = { addColDlg = true }) {
-                    Text("Nowa kolumna (DDL)", color = NixiPurple, fontSize = 12.sp)
-                }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                PillButton(
+                    text = "Nowa tabela",
+                    filled = false,
+                    modifier = Modifier.weight(1f),
+                    onClick = { newTableDlg = true },
+                )
+                PillButton(
+                    text = "Nowa kolumna",
+                    filled = false,
+                    modifier = Modifier.weight(1f),
+                    onClick = { addColDlg = true },
+                )
             }
         }
 
@@ -150,16 +158,14 @@ fun TablesScreen() {
             val meta = tables.firstOrNull { it.name == name }
             val cols = meta?.columns ?: emptyList<dev.nixi.db.PostgrestClient.ColumnMeta>()
             val a = SupabaseHub.accessFor(name)
-            Surface(
-                color = NixiSurface,
-                shape = RoundedCornerShape(14.dp),
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable {
-                        if (SupabaseHub.available) selected = name
-                    },
+                    .glass(shape = RoundedCornerShape(18.dp), strong = true)
+                    .clickable { if (SupabaseHub.available) selected = name }
+                    .padding(14.dp),
             ) {
-                Column(Modifier.padding(14.dp)) {
+                Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             name,
@@ -251,19 +257,25 @@ fun TablesScreen() {
 
 }
 
+/** Znaczek dostępu NIXI (C/E/D) — świeci, gdy dostęp jest włączony. */
 @Composable
 private fun AccessChip(letter: String, on: Boolean) {
-    Surface(
-        color = if (on) NixiPurple else Color(0xFF241A44),
-        shape = RoundedCornerShape(6.dp),
-        modifier = Modifier.padding(start = 4.dp),
+    Box(
+        modifier = Modifier
+            .padding(start = 4.dp)
+            .clip(RoundedCornerShape(999.dp))
+            .background(
+                if (on) Brush.horizontalGradient(listOf(NixiPurple, NixiPurpleDeep))
+                else Brush.verticalGradient(listOf(Color(0x33FFFFFF), Color(0x14FFFFFF)))
+            )
+            .border(1.dp, if (on) Color(0x59FFFFFF) else Color(0x1FFFFFFF), RoundedCornerShape(999.dp))
+            .padding(horizontal = 8.dp, vertical = 3.dp),
     ) {
         Text(
             letter,
             color = if (on) Color.White else NixiTextDim,
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
         )
     }
 }
@@ -271,15 +283,25 @@ private fun AccessChip(letter: String, on: Boolean) {
 @Composable
 private fun SqlProposalCard(sql: String, onDone: () -> Unit) {
     val context = LocalContext.current
-    Surface(color = NixiSurfaceHi, shape = RoundedCornerShape(14.dp),
-        modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp)) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .glass(shape = RoundedCornerShape(20.dp), strong = true)
+            .padding(14.dp),
+    ) {
+        Column {
             Text("Nowy SQL do wklejenia (DDL)", color = NixiText,
                 fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(2.dp))
+            Text(
+                "PostgREST nie wykonuje SQL — wklej go w SQL Editorze Supabase.",
+                color = NixiTextDim, fontSize = 11.sp,
+            )
+            Spacer(Modifier.height(8.dp))
             Text(
                 sql,
-                color = NixiTextDim, fontSize = 11.sp,
+                color = NixiText, fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
                 modifier = Modifier
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())

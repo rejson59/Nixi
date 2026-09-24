@@ -28,11 +28,11 @@ object ReminderTools {
         }.getOrNull()
         if (rows == null || !rows.ok) return ToolResult.ok("Brak przypomnień.")
         if (rows.rows.isEmpty()) return ToolResult.ok("Nie masz aktywnych przypomnień.")
-        val items = rows.rows.joinToString("\n") {
-            val t = it.optString("fires_at")
-            val h = t.takeLast(8).substring(0, 5).replace('T', ':')
-            val d = t.take(10)
-            "- $d $h: ${it.optString("title")}"
+        val items = rows.rows.joinToString("\n") { r ->
+            val t = r.optString("fires_at")
+            val date = TimeUtils.dateOf(t) ?: t.take(10)
+            val hour = TimeUtils.hourOf(t) ?: "—"
+            "- $date $hour: ${r.optString("title")}"
         }
         return ToolResult.ok("Przypomnienia:\n$items")
     }
@@ -58,7 +58,8 @@ object ReminderTools {
                 timeZone = java.util.TimeZone.getDefault()
             }.format(firesAt))
             put("done", false)
-            put("created_at", System.currentTimeMillis())
+            // UWAGA: created_at zostawiamy bazie (timestamptz default now()) —
+            // wcześniej wysyłaliśmy tu millisekundy i PostgREST odrzucał insert.
         }
         val ins = runCatching { SupabaseHub.c().insert(Tables.REMINDERS, row) }.getOrNull()
         if (ins == null || !ins.ok) return ToolResult.fail("Błąd zapisu: ${ins?.error}")

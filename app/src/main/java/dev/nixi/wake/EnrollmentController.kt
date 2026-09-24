@@ -71,10 +71,17 @@ object EnrollmentController {
 
     private fun finishAttempt() {
         recordJob?.cancel()
+        // Mikrofon wracał tylko wtedy, gdy usługa nasłuchu działała dalej — a
+        // AudioBus.stop() gasił go bezpowrotnie do restartu aplikacji.
+        // Teraz zawsze oddajemy mikrofon tam, gdzie ma wrócić.
+        val listeningWasOn = LocalStore.wakeEnabled
         AudioBus.stop()
-        // wznowienie nasłuchu (jeśli działa usługa)
-        if (WakeWordService.running) {
-            WakeWordService.restoreWakeConsumer()
+        if (listeningWasOn) {
+            if (WakeWordService.running) {
+                WakeWordService.restoreWakeConsumer()
+            } else {
+                WakeWordService.start(dev.nixi.NixiApp.ctx())
+            }
         }
         val s = _state.value
         if (!s.recording) return
@@ -85,11 +92,25 @@ object EnrollmentController {
             attempts.add(frames.frames)
             val takes = attempts.size
             if (takes >= 3) {
-                val threshold = WakeEnroll.calibrate(attempts)
-                val json = WakeEngine().toJson(16, 10, threshold, attempts)
+                // Podpis mówcy (średnia + odchylenie kanałów) i próg podobieństwa
+                // liczymy z Twoich własnych prób — to trzeci filtr kaskady,
+                // odpowiednik weryfikacji mówcy w hotwordzie Google.
+                val signature = WakeEnroll.meanSignature(attempts)
+                val sigThreshold = WakeEnroll.signatureThreshold(attempts)
+                val spread = WakeEnroll.spread(attempts)
+                val json = WakeEngine().toJson(attempts, sigThreshold, signature)
+                // do preferencji zapisujemy JSON (przeżyje restart), a silnikowi
+                // przekazujemy cechy wprost — bez pośredniego parsowania
                 LocalStore.wakeTemplates = json
-                WakeWordService.engine.loadFromJson(json)
-                LogBus.log("wake.enroll", "szablon zapisany (próg ${"%.3f".format(threshold)})")
+                LocalStore.wakeNeedsEnroll = false
+                WakeWordService.engine.loadTemplates(attempts, signature, sigThreshold)
+                // tryb (STANDARD/ECO) ustawiamy po wczytaniu szablonu, żeby
+                // nie nadpisał wyboru użytkownika
+                WakeWordService.ensureEngineConfigured()
+                LogBus.log(
+                    "wake.enroll",
+                    "szablon zapisany: rozrzut=%.3f próg podpisu=%.2f".format(spread, sigThreshold)
+                )
                 _state.value = State(
                     takes = takes, recording = false,
                     message = "Gotowe! NIXI poznała Twoje „Hej Nixi”.", done = true
@@ -109,5 +130,5 @@ object EnrollmentController {
     }
 
     private val lastBuffer = ShortArray(16000 * 2)
-    private var lastLen = 0
+    @Volatile private var lastLen = 0
 }

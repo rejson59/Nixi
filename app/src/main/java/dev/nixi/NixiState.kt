@@ -47,6 +47,35 @@ object NixiState {
     /** Propozycja DDL (nowa tabela/kolumna) do przeglądu na ekranie Tabele. */
     val pendingSql = MutableStateFlow("")
 
+    /** Zużycie limitu tokenów (TPM) w bieżącej sesji — pokazywane na ekranie głównym. */
+    data class TpmInfo(
+        val used: Int = 0,
+        val limit: Int = 0,
+        val percent: Int = 0,
+        val backoffSec: Long = 0,
+    )
+
+    val tpm = MutableStateFlow(TpmInfo())
+
+    /** Ostatni błąd mikrofonu/audio (diagnostyka na ekranie głównym). */
+    val lastAudioError = MutableStateFlow("")
+
+    /**
+     * Ostatni błąd połączenia z Gemini (kod + treść od serwera).
+     * Pusty = ostatnia próba była w porządku. Pokazujemy go na ekranie
+     * głównym — bez tego „NIXI nie odpowiada” nie mówiło, co się stało.
+     */
+    val lastSessionError = MutableStateFlow("")
+
+    /**
+     * Wynik samokontroli („Sprawdź NIXI”): opis krok po kroku, co działa,
+     * a co nie — klucz API, model, mikrofon, Supabase.
+     */
+    val selfCheck = MutableStateFlow<List<dev.nixi.util.SelfCheck.Item>>(emptyList())
+
+    /** True, gdy samokontrola właśnie trwa. */
+    val selfCheckRunning = MutableStateFlow(false)
+
     sealed interface NixiEvent {
         data class ToolStarted(val name: String, val args: String) : NixiEvent
         data class ToolDone(val name: String, val ok: Boolean, val summary: String) : NixiEvent

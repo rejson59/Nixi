@@ -3,6 +3,7 @@ package dev.nixi.live
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.IBinder
 import dev.nixi.NixiApp
@@ -22,9 +23,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
@@ -39,12 +40,27 @@ import java.util.concurrent.atomic.AtomicBoolean
  *  - TpmGuard: klient NIGDY nie przekroczy limitu TPM darmowego planu,
  *  - pauza multimediów na start, wznowienie na koniec,
  *  - po sesji: podsumowanie + fakty do pamięci długotrwałej (REST).
+ *
+ * Cykl życia: usługa startuje z [start], pierwszy `onStartCommand` uruchamia
+ * sesję (foreground z typem microphone), a `endSession` sprząta WSZYSTKO:
+ * mikrofon, odtwarzacz, projekcję ekranu, oczekujące potwierdzenia i media.
  */
 class LiveSessionService : Service() {
 
     companion object {
         const val NOTIF_ID = 1002
         const val EXTRA_TRIGGER = "trigger"
+        const val EXTRA_REASON = "reason"
+        const val ACTION_STOP = "dev.nixi.live.STOP"
+
+        /** Ile razy wznawiamy połączenie, zanim zakończymy sesję. */
+        private const val MAX_RECONNECTS = 3
+
+        /** Poziom mikrofonu, od którego uznajemy, że użytkownik przerwał NIXI. */
+        private const val BARGE_LEVEL = 0.45f
+
+        /** Ile klatek (64 ms) pod rząd musi być głośno, żeby przerwać. */
+        private const val BARGE_FRAMES = 2
 
         @Volatile var running = false
             private set
@@ -52,12 +68,17 @@ class LiveSessionService : Service() {
         @Volatile var instance: LiveSessionService? = null
             private set
 
+        /** Oczekujące potwierdzenia (id -> decyzja) — wspólne dla UI i usługi. */
         private val decisions = ConcurrentHashMap<String, CompletableDeferred<Boolean>>()
 
         fun start(context: Context, trigger: String) {
-            if (running) return
-            if (context.checkSelfPermission("android.permission.RECORD_AUDIO")
-                != android.content.pm.PackageManager.PERMISSION_GRANTED
+            if (running) {
+                // sesja już trwa — nie zaczynamy drugiej
+                LogBus.log("live.start", "sesja już trwa — ignoruję start ($trigger)")
+                return
+            }
+            if (context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED
             ) {
                 ActionNotifier.notify(
                     context, "NIXI: mikrofon",
@@ -68,16 +89,43 @@ class LiveSessionService : Service() {
             }
             val intent = Intent(context, LiveSessionService::class.java)
                 .putExtra(EXTRA_TRIGGER, trigger)
-            context.startForegroundService(intent)
+            try {
+                context.startForegroundService(intent)
+            } catch (t: Throwable) {
+                // Android 12+: start FGS z tła bywa zabroniony (np. z BootReceivera)
+                LogBus.log("live.start", "nie mogę wystartować usługi: ${t.message}", "error")
+                ActionNotifier.notify(
+                    context, "NIXI",
+                    "System nie pozwolił uruchomić sesji w tle. Otwórz aplikację i spróbuj ponownie.",
+                    short = false
+                )
+            }
+        }
+
+        /** Grzeczne zakończenie sesji (np. przycisk „koniec” w oknie rozmowy). */
+        fun stop(context: Context, reason: String = "użytkownik zakończył") {
+            if (!running) return
+            val intent = Intent(context, LiveSessionService::class.java)
+                .setAction(ACTION_STOP)
+                .putExtra(EXTRA_REASON, reason)
+            runCatching { context.startService(intent) }
+                .onFailure { runCatching { context.stopService(Intent(context, LiveSessionService::class.java)) } }
         }
 
         /** Odpowiedź na okno potwierdzenia (UI okna rozmowy). */
         fun confirm(pendingId: String, approved: Boolean) {
             decisions[pendingId]?.complete(approved)
         }
+
+        /** Awaryjne domknięcie wszystkich czekających potwierdzeń (koniec sesji). */
+        internal fun cancelAllDecisions() {
+            decisions.values.forEach { runCatching { it.complete(false) } }
+            decisions.clear()
+        }
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     @Volatile private var client: GeminiLiveClient? = null
     private val player = AudioPlayer()
     private val tpm = TpmGuard()
@@ -87,8 +135,27 @@ class LiveSessionService : Service() {
     private val transcripts = mutableListOf<Pair<String, String>>()
     private val textBuffer = StringBuilder()
     private var idleJob: Job? = null
-    @Volatile private var lastActivity = 0L
+    private var tpmJob: Job? = null
+
+    @Volatile private var lastUserActivity = 0L
     @Volatile private var throttled = false
+    @Volatile private var trigger = "button"
+    @Volatile private var promptText = ""
+    @Volatile private var reconnectAttempts = 0
+    private var reconnectJob: Job? = null
+
+    /**
+     * Wariant wiadomości `setup` (patrz [buildSetup]) i licznik prób jego
+     * dopasowania. `-1` = jeszcze nie wiemy, który działa — bierzemy domyślny.
+     */
+    @Volatile private var setupVariant = -1
+    private var setupTries = 0
+
+    /** True po `setupComplete` — czyli sesja naprawdę rozmawia z modelem. */
+    @Volatile private var setupDone = false
+
+    /** Ile razy model przysłał dźwięk (dowód, że rozmowa realnie działa). */
+    @Volatile private var audioReplies = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -96,37 +163,83 @@ class LiveSessionService : Service() {
         ToolContext.screenWidthPx = resources.displayMetrics.widthPixels
         ToolContext.screenHeightPx = resources.displayMetrics.heightPixels
         instance = this
-        if (sessionStarted.compareAndSet(false, true)) {
-            beginSession()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_STOP) {
+            endSession(intent.getStringExtra(EXTRA_REASON) ?: "użytkownik zakończył")
+            return START_NOT_STICKY
         }
+        if (intent == null) {
+            // restart przez system (my nigdy nie chcemy START_STICKY dla sesji)
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        if (!sessionStarted.compareAndSet(false, true)) return START_NOT_STICKY
+        trigger = intent.getStringExtra(EXTRA_TRIGGER) ?: "button"
+        NixiState.wakeTrigger = trigger
+        running = true
+        if (!startForegroundCompat("NIXI rozmawia", "Dotknij, aby otworzyć okno rozmowy")) {
+            // np. Android 14+ nie pozwolił na mikrofon w tle — nie zaczynamy sesji
+            running = false
+            ActionNotifier.notify(
+                this, "NIXI",
+                "System nie pozwolił rozpocząć rozmowy w tle. Otwórz aplikację i spróbuj z niej.",
+                short = false
+            )
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        beginSession()
+        return START_NOT_STICKY
     }
 
     /** Użytkownik wyraził zgodę na podgląd ekranu (MediaProjection). */
     fun onScreenConsent() {
-        val c = client ?: return
+        if (client == null) return
         val w = resources.displayMetrics.widthPixels
         val h = resources.displayMetrics.heightPixels
-        c.sendText(
+        NixiState.orbState.value = NixiState.OrbState.MANUAL
+        sendTextCounted(
             "Użytkownik wyraził zgodę na podgląd ekranu (rozdzielczość ${w}x$h). " +
                 "Tryb ręczny jest gotowy — użyj screen_get, aby zobaczyć ekran, i wykonaj zadanie. " +
                 "Po wykonaniu zadania zakończ tryb przez screen_manual_stop."
         )
+        lastUserActivity = System.currentTimeMillis()
         LogBus.log("manual.consent", "zgoda na podgląd ekranu")
+    }
+
+    /** Użytkownik odmówił zgody na podgląd ekranu. */
+    fun onScreenDenied() {
+        NixiState.manualMode.value = false
+        NixiState.orbState.value = NixiState.OrbState.LISTENING
+        sendTextCounted(
+            "Użytkownik NIE wyraził zgody na podgląd ekranu. Nie próbuj ponownie w tej sesji — " +
+                "powiedz krótko, że tryb ręczny wymaga zgody, i zaproponuj inne rozwiązanie."
+        )
+        LogBus.log("manual.denied", "brak zgody na podgląd ekranu", "warn")
     }
 
     /** Szybkie polecenie tekstowe od UI (np. „uruchom tryb ręczny”). */
     fun sendUserText(text: String) {
-        client?.sendText(text)
+        if (text.isBlank()) return
+        val c = client
+        if (c == null || !c.isOpen()) {
+            LogBus.log("live.text", "sesja niegotowa — pomijam tekst", "warn")
+            return
+        }
+        lastUserActivity = System.currentTimeMillis()
+        sendTextCounted(text)
     }
 
     private fun beginSession() {
-        val trigger = "button"
-        running = true
         NixiState.inSession.value = true
         NixiState.lastToolLine.value = ""
         sessionStart = System.currentTimeMillis()
-        lastActivity = sessionStart
-        startForegroundCompat("NIXI rozmawia", "Dotknij, aby otworzyć okno rozmowy")
+        lastUserActivity = sessionStart
+        throttled = false
+        tpm.reset()
+        publishTpm()
 
         val key = LocalStore.geminiKey
         if (key.isBlank()) {
@@ -135,49 +248,92 @@ class LiveSessionService : Service() {
             return
         }
 
+        setupDone = false
+        setupTries = 0
+        setupVariant = -1
+        audioReplies = 0
+        NixiState.lastSessionError.value = ""
+
         player.start()
+        // Usuwanie echa z głośnika — bez tego mikrofon zbiera głos NIXI
+        // i wysyła go do modelu (fałszywe przerwania). Jeśli telefon nie
+        // wspiera AEC, działa bramka półduplex w streamAudio().
+        AudioBus.enableEchoCancel()
         val c = GeminiLiveClient(key, listener)
         client = c
 
         scope.launch {
-            val prompt = withTimeoutOrNull(6000) { SystemPromptBuilder.build() }
+            val manual = NixiState.manualMode.value
+            val w = if (manual) resources.displayMetrics.widthPixels else 0
+            val h = if (manual) resources.displayMetrics.heightPixels else 0
+            val prompt = withTimeoutOrNull(4500) { SystemPromptBuilder.build(w, h) }
                 ?: "Jesteś NIXI, osobistą asystentką. Mów po polsku, zwięźle."
-            val setup = buildSetup(prompt)
-            c.connect(setup)
+            if (ended.get()) return@launch
+            promptText = prompt
+            connectSession()
             streamAudio()
             idleWatcher()
+            tpmWatcher()
         }
     }
 
-    private fun buildSetup(prompt: String): JSONObject {
+    /**
+     * Sesja Live bez wznowienia żyje ~10 min i nie przeżywa zerwania sieci.
+     * `sessionResumption` + uchwyt z poprzedniego połączenia pozwalają
+     * kontynuować rozmowę (kontekst zostaje po stronie serwera).
+     */
+    private fun buildSetup(prompt: String, handle: String? = null, variant: Int = 0): JSONObject {
+        // Ten sam model, instrukcja i narzędzia w każdym wariancie — różni się
+        // tylko miejsce, w którym podajemy tryb odpowiedzi i głos. Dokumentacja
+        // Google jest tu niespójna: przewodnik po WebSocketach pokazuje
+        // `responseModalities` na najwyższym poziomie `setup`, a referencja API
+        // trzyma je w `generationConfig` (i nie wymienia już `speechConfig`
+        // na najwyższym poziomie). Zamiast zgadywać — próbujemy po kolei,
+        // a działający wariant zapamiętujemy (LocalStore.liveSetupVariant).
         val setup = JSONObject()
             .put("model", "models/${LocalStore.geminiModel}")
-            .put("responseModalities", JSONArray().put("AUDIO"))
             .put(
                 "systemInstruction",
                 JSONObject().put("parts", JSONArray().put(JSONObject().put("text", prompt)))
             )
             .put("tools", JSONArray().put(JSONObject().put("functionDeclarations", ToolRegistry.declarations())))
+
+        val voice = LocalStore.voiceName.ifBlank { "Puck" }
+        val speech = JSONObject()
+            .put(
+                "voiceConfig",
+                JSONObject().put(
+                    "prebuiltVoiceConfig",
+                    JSONObject().put("voiceName", voice)
+                )
+            )
+        when (variant) {
+            // 0 — wg referencji API: wszystko w generationConfig
+            0 -> setup.put(
+                "generationConfig",
+                JSONObject()
+                    .put("responseModalities", JSONArray().put("AUDIO"))
+                    .put("speechConfig", speech)
+            )
+            // 1 — wg przewodnika WebSocket: na najwyższym poziomie `setup`
+            1 -> setup
+                .put("responseModalities", JSONArray().put("AUDIO"))
+                .put("speechConfig", speech)
+            // 2 — minimalny: bez trybu odpowiedzi i bez głosu (serwer użyje
+            //     domyślnych). Zostaje model, instrukcja i narzędzia.
+            else -> Unit
+        }
+        // Uwaga: w speechConfig NIE ma pola audioConfig — Live API zawsze
+        // zwraca PCM 24 kHz LINEAR16, a nieznane pole kończyło się błędem 400.
+        if (variant <= 1) {
+            // tekst rozmowy (user/nixi) do podsumowań i pamięci
+            setup.put("inputAudioTranscription", JSONObject())
+            setup.put("outputAudioTranscription", JSONObject())
+        }
         setup.put(
-            "speechConfig",
-            JSONObject()
-                .put(
-                    "voiceConfig",
-                    JSONObject().put(
-                        "prebuiltVoiceConfig",
-                        JSONObject().put("voiceName", LocalStore.voiceName.ifBlank { "Puck" })
-                    )
-                )
-                .put(
-                    "audioConfig",
-                    JSONObject()
-                        .put("audioEncoding", "LINEAR16")
-                        .put("sampleRateHertz", 24000)
-                )
+            "sessionResumption",
+            JSONObject().apply { if (!handle.isNullOrBlank()) put("handle", handle) }
         )
-        // tekst rozmowy (user/nixi) do podsumowań i pamięci — serwer wysyła tylko po włączeniu
-        setup.put("inputAudioTranscription", JSONObject())
-        setup.put("outputAudioTranscription", JSONObject())
         setup.put(
             "realtimeInputConfig",
             JSONObject().put(
@@ -190,12 +346,129 @@ class LiveSessionService : Service() {
         return JSONObject().put("setup", setup)
     }
 
-    /** Strumień mikrofonu do Live API (z TpmGuard i barge-in). */
+    /** Pierwsze połączenie i każde kolejne wznowienie idą tą samą drogą. */
+    private fun connectSession() {
+        val c = client ?: return
+        val handle = c.resumptionHandle
+        if (setupVariant < 0) setupVariant = LocalStore.liveSetupVariant
+        if (setupDone) setupTries = 0
+        val setup = buildSetup(promptText, handle, setupVariant)
+        // Pierwsze gniazdo w tej sesji: connect(). Każde następne — również
+        // po zmianie wariantu setupu — przez reconnect(), bo ono najpierw
+        // zamyka stare gniazdo (inaczej zostałoby „zombie" wysyłające audio).
+        if (c.connectCount == 0) c.connect(setup) else c.reconnect(setup)
+        // Prompt systemowy też jest rozliczany przez serwer — liczymy go do
+        // budżetu przy każdym połączeniu (wcześniej TPM widział tylko audio).
+        tpm.addUsed(TpmGuard.tokensForText(promptText))
+        publishTpm()
+    }
+
+    /** Wysyłka tekstu z doliczeniem do budżetu TPM. */
+    private fun sendTextCounted(text: String) {
+        val c = client ?: return
+        c.sendText(text)
+        tpm.addUsed(TpmGuard.tokensForText(text))
+        publishTpm()
+    }
+
+    /**
+     * Zaplanuj wznowienie po zerwaniu sieci / goAway. Ograniczone do
+     * [MAX_RECONNECTS] prób z rosnącym odstępem; po ich wyczerpaniu kończymy
+     * sesję z jasnym powodem (użytkownik nie zostaje z martwym mikrofonem).
+     */
+    /**
+     * Przechodzi do kolejnego wariantu `setup`. Zwraca true, gdy przejęliśmy
+     * obsługę błędu (nie wołaj wtedy scheduleReconnect/endSession).
+     */
+    private fun escalateSetup(why: String): Boolean {
+        if (ended.get()) return false
+        val tried = setupTries
+        val next = setupVariant + 1
+        if (tried >= 3 || next > 2) {
+            NixiState.lastSessionError.value =
+                "Nie udało się rozpocząć rozmowy z Gemini ($why). Sprawdź klucz API i model w Ustawieniach → Mózg."
+            ActionNotifier.notify(
+                this, "NIXI: nie mogę rozmawiać",
+                "Gemini odrzuciło konfigurację sesji ($why). Sprawdź klucz API i nazwę modelu.",
+                short = false
+            )
+            endSession("konfiguracja sesji odrzucona")
+            return true
+        }
+        setupTries++
+        setupVariant = next
+        LogBus.log(
+            "live.setup",
+            "wariant $next nie zadziałał ($why) — próbuję kolejny ($setupTries/3)",
+            "warn"
+        )
+        NixiState.orbState.value = NixiState.OrbState.THINKING
+        scope.launch {
+            delay(250)
+            if (ended.get()) return@launch
+            connectSession()
+        }
+        return true
+    }
+
+    /**
+     * Ponowne połączenie po zerwaniu (sieć, goAway, restart procesu).
+     * [MAX_RECONNECTS] prób z rosnącym odstępem; po ich wyczerpaniu kończymy
+     * sesję z jasnym powodem (użytkownik nie zostaje z martwym mikrofonem).
+     */
+    private fun scheduleReconnect(why: String) {
+        if (ended.get()) return
+        if (reconnectJob?.isActive == true) return
+        if (reconnectAttempts >= MAX_RECONNECTS) {
+            LogBus.log("live.reconnect", "koniec prób ($why)", "error")
+            endSession("brak połączenia z Gemini ($why)")
+            return
+        }
+        reconnectAttempts++
+        val waitMs = if (why == "goAway") 400L else 1500L * reconnectAttempts
+        LogBus.log("live.reconnect", "próba $reconnectAttempts/$MAX_RECONNECTS za ${waitMs} ms ($why)", "warn")
+        NixiState.orbState.value = NixiState.OrbState.THINKING
+        NixiState.emit(NixiState.NixiEvent.ErrorHappened("live", "wznawiam połączenie ($why)"))
+        reconnectJob = scope.launch {
+            delay(waitMs)
+            if (ended.get()) return@launch
+            if (client?.isOpen() == true) return@launch
+            connectSession()
+        }
+    }
+
+    /** Strumień mikrofonu do Live API (z TpmGuard, AEC i barge-inem). */
     private fun streamAudio() {
         val consumer = object : AudioBus.Consumer {
+            /** Licznik głośnych klatek pod rząd — chroni przed echem głośnika. */
+            private var loudFrames = 0
+
+            /** Czy logowaliśmy już pominięcie klatek (raz na sesję, bez spamu). */
+            private var gateLogged = false
+
             override fun onPcm(pcm: ShortArray, len: Int) {
                 val c = client ?: return
                 if (!c.isOpen()) return
+                // Bramka półduplex: gdy NIXI mówi, mikrofon zbiera jej własny
+                // głos z głośnika. Wysyłanie tego do modelu kończyło się
+                // „rozmową z samą sobą” i fałszywymi przerwaniami.
+                //
+                // Dlaczego nie polegamy na AEC: część telefonów zwraca obiekt
+                // AEC, które „jest włączone", ale realnie nic nie tłumi.
+                // Bramka jest deterministyczna. AEC zostaje włączone, bo
+                // poprawia jakość klatek, które i tak wysyłamy (np. zaraz po
+                // przerwaniu, gdy głos NIXI jeszcze wybrzmiewa).
+                //
+                // Barge-in nadal działa: poziom leci osobnym callbackiem,
+                // a przerwanie czyści kolejkę odtwarzacza (patrz onLevel) —
+                // po nim bramka otwiera się natychmiast.
+                if (player.isPlaying()) {
+                    if (!gateLogged) {
+                        gateLogged = true
+                        LogBus.log("live.gate", "NIXI mówi — nie wysyłam jej własnego głosu do modelu")
+                    }
+                    return
+                }
                 val sec = len / 16000.0
                 val tokens = TpmGuard.tokensForAudioSeconds(sec)
                 if (!tpm.canSend(tokens)) {
@@ -205,9 +478,15 @@ class LiveSessionService : Service() {
                         NixiState.emit(NixiState.NixiEvent.TpmLimited("Limit TPM — chwilowa pauza"))
                         LogBus.log("tpm.throttle", "pauza nadawania", "warn")
                     }
+                    publishTpm()
                     return
                 }
-                throttled = false
+                if (throttled) {
+                    throttled = false
+                    if (NixiState.orbState.value == NixiState.OrbState.TPM_LIMIT) {
+                        NixiState.orbState.value = NixiState.OrbState.LISTENING
+                    }
+                }
                 tpm.addUsed(tokens)
                 // PCM little-endian -> bajty -> base64
                 val bytes = ByteArray(len * 2)
@@ -219,13 +498,20 @@ class LiveSessionService : Service() {
             }
 
             override fun onLevel(level: Float) {
-                lastActivity = System.currentTimeMillis()
-                if (level > 0.3f) {
-                    // barge-in: przerwij głos NIXI, gdy zacząłem mówić
-                    if (NixiState.orbState.value == NixiState.OrbState.SPEAKING) {
-                        player.flush()
-                        NixiState.orbState.value = NixiState.OrbState.LISTENING
-                    }
+                // UWAGA: poziom leci ~15x/s, więc NIE może odświeżać licznika
+                // bezczynności — inaczej sesja nigdy się nie kończy.
+                if (level > 0.3f) lastUserActivity = System.currentTimeMillis()
+                // barge-in: przerwij głos NIXI, gdy zacząłem mówić.
+                // Wymagamy kilku głośnych klatek pod rząd, żeby własne echo
+                // z głośnika (albo stuknięcie) nie ucinało odpowiedzi.
+                loudFrames = if (level > BARGE_LEVEL) loudFrames + 1 else 0
+                val speaking = NixiState.orbState.value == NixiState.OrbState.SPEAKING ||
+                    player.isPlaying()
+                if (speaking && loudFrames >= BARGE_FRAMES) {
+                    loudFrames = 0
+                    player.flush()
+                    NixiState.orbState.value = NixiState.OrbState.LISTENING
+                    LogBus.log("live.bargein", "przerwano odpowiedź (poziom %.2f)".format(level))
                 }
             }
         }
@@ -238,29 +524,79 @@ class LiveSessionService : Service() {
         idleJob = scope.launch {
             while (running && !ended.get()) {
                 delay(5000)
-                val idle = System.currentTimeMillis() - lastActivity
+                val idle = System.currentTimeMillis() - lastUserActivity
                 val inManual = NixiState.manualMode.value
                 if (idle > 5 * 60_000 && !inManual) {
                     endSession("bezczynność (5 min)")
                     break
                 }
+                if (idle > 60_000 && !inManual && !manuallyReminded && NixiState.orbState.value != NixiState.OrbState.SPEAKING) {
+                    manuallyReminded = true
+                    ActionNotifier.notify(
+                        this@LiveSessionService, "NIXI",
+                        "Sesja wciąż działa, ale nic nie mówisz. Powiedz „koniec” albo dotknij kuli, aby zakończyć.",
+                        short = true
+                    )
+                }
             }
         }
     }
 
+    @Volatile private var manuallyReminded = false
+
+    /** Podgląd zużycia TPM na kuli (i w logach co 15 s). */
+    private fun tpmWatcher() {
+        tpmJob?.cancel()
+        tpmJob = scope.launch {
+            while (running && !ended.get()) {
+                publishTpm()
+                delay(15_000)
+            }
+        }
+    }
+
+    private fun publishTpm() {
+        val s = tpm.snapshot()
+        NixiState.tpm.value = NixiState.TpmInfo(
+            used = s.used,
+            limit = s.limit,
+            percent = s.percent,
+            backoffSec = s.backoffSec,
+        )
+    }
+
     private val listener = object : GeminiLiveClient.Listener {
         override fun onSetupComplete() {
-            LogBus.log("live.setup", "sesja gotowa")
+            reconnectAttempts = 0
+            reconnectJob?.cancel()
+            val first = !setupDone
+            setupDone = true
+            // Ten wariant zadziałał — zapamiętujemy go, żeby następna sesja
+            // (i restart telefonu) nie powtarzała nieudanych prób.
+            if (setupTries > 0 || LocalStore.liveSetupVariant != setupVariant) {
+                LocalStore.liveSetupVariant = setupVariant
+                LogBus.log("live.setup", "działający wariant setupu: $setupVariant (zapisany)")
+            }
+            setupTries = 0
+            NixiState.lastSessionError.value = ""
+            LogBus.log(
+                "live.setup",
+                "sesja gotowa (trigger=$trigger, połączenie #${client?.connectCount ?: 1}, wariant=$setupVariant)"
+            )
             NixiState.orbState.value = NixiState.OrbState.LISTENING
-            if (LocalStore.dingEnabled) playDing(dev.nixi.R.raw.ding_start)
+            if (first && LocalStore.dingEnabled) playDing(dev.nixi.R.raw.ding_start)
         }
 
         override fun onAudio(pcm: ByteArray) {
+            audioReplies++
             player.write(pcm)
-            if (NixiState.orbState.value != NixiState.OrbState.SPEAKING) {
+            // wyjście modelu też wlicza się do limitu TPM
+            tpm.addUsed(TpmGuard.tokensForOutputSeconds(pcm.size / 2 / 24000.0))
+            if (NixiState.orbState.value != NixiState.OrbState.SPEAKING &&
+                NixiState.orbState.value != NixiState.OrbState.MANUAL
+            ) {
                 NixiState.orbState.value = NixiState.OrbState.SPEAKING
             }
-            lastActivity = System.currentTimeMillis()
         }
 
         override fun onTextDelta(text: String) {
@@ -269,8 +605,10 @@ class LiveSessionService : Service() {
         }
 
         override fun onInputTranscript(text: String) {
-            if (text.isNotBlank()) transcripts.add("user" to text)
-            lastActivity = System.currentTimeMillis()
+            if (text.isNotBlank()) {
+                transcripts.add("user" to text)
+                lastUserActivity = System.currentTimeMillis()
+            }
         }
 
         override fun onOutputTranscript(text: String) {
@@ -278,18 +616,26 @@ class LiveSessionService : Service() {
         }
 
         override fun onToolCall(callId: String, calls: List<JSONObject>) {
+            NixiState.orbState.value = NixiState.OrbState.THINKING
             scope.launch { handleToolCalls(callId, calls) }
         }
 
         override fun onTurnComplete() {
-            if (NixiState.orbState.value == NixiState.OrbState.SPEAKING) {
-                NixiState.orbState.value = NixiState.OrbState.LISTENING
+            if (NixiState.orbState.value == NixiState.OrbState.SPEAKING ||
+                NixiState.orbState.value == NixiState.OrbState.THINKING
+            ) {
+                NixiState.orbState.value = if (NixiState.manualMode.value) {
+                    NixiState.OrbState.MANUAL
+                } else {
+                    NixiState.OrbState.LISTENING
+                }
             }
         }
 
         override fun onGoAway() {
-            LogBus.log("live.goaway", "serwer kończy sesję")
-            endSession("goAway")
+            val left = client?.goAwayMillis ?: 0
+            LogBus.log("live.goaway", "serwer kończy sesję (timeLeft=${left} ms) — wznawiam", "warn")
+            scheduleReconnect("goAway")
         }
 
         override fun onSessionEnd() {
@@ -297,26 +643,56 @@ class LiveSessionService : Service() {
         }
 
         override fun onApiError(code: Int, message: String) {
-            LogBus.log("live.error", "code=$code $message", "error")
-            if (code == 429) {
-                tpm.noteRateLimit()
-                ActionNotifier.notify(
-                    this@LiveSessionService, "NIXI: limit TPM",
-                    "Zbyt wiele tokenów/min (limit darmowego planu). Odwrotnie za chwilę — spróbuj ponownie za ~60 s.",
-                    short = false
-                )
-            } else if (code == 400 || code == 403) {
-                ActionNotifier.notify(
-                    this@LiveSessionService, "NIXI: błąd API",
-                    "Gemini Live: ${message.take(200)}. Sprawdź klucz/model w Ustawieniach.",
-                    short = false
-                )
+            LogBus.log(
+                "live.error",
+                "code=$code wariant=${setupVariant} setup=${if (setupDone) "ok" else "nieudany"} $message",
+                "error"
+            )
+            NixiState.lastSessionError.value = "$code: ${message.take(300)}"
+
+            // Dopasowanie formatu `setup`: dopóki serwer nie potwierdził
+            // setupComplete, każdy błąd traktujemy jak „ten wariant jest zły”
+            // i próbujemy następny — zamiast zamykać sesję bez słowa.
+            if (!setupDone && (code == 400 || code == 401 || code == 1007 || code == 1008)) {
+                if (escalateSetup("błąd $code")) return
             }
-            endSession("błąd API $code")
+
+            when {
+                // limit tempa: nie zabijamy rozmowy — TpmGuard wstrzyma nadawanie
+                code == 429 -> {
+                    tpm.noteRateLimit()
+                    publishTpm()
+                    ActionNotifier.notify(
+                        this@LiveSessionService, "NIXI: limit tokenów",
+                        "Zbyt wiele tokenów na minutę (limit darmowego planu). Robię krótką przerwę.",
+                        short = true
+                    )
+                    scheduleReconnect("429")
+                }
+                // zły klucz / model — ponawianie nic nie da
+                code == 400 || code == 401 || code == 403 -> {
+                    ActionNotifier.notify(
+                        this@LiveSessionService, "NIXI: błąd API",
+                        "Gemini Live: ${message.take(200)}. Sprawdź klucz/model w Ustawieniach.",
+                        short = false
+                    )
+                    endSession("błąd API $code")
+                }
+                else -> scheduleReconnect("błąd $code")
+            }
         }
 
         override fun onClosed(code: Int, reason: String) {
-            if (!ended.get()) endSession("zamknięto ($code $reason)")
+            if (ended.get()) return
+            // nasze własne zamknięcie (koniec sesji) — nic nie rób
+            if (client?.closedByUs == true) return
+            // Serwer potrafi odrzucić zły `setup` zamknięciem gniazda bez
+            // komunikatu `error` (np. 1007 „invalid frame payload”). Zwykłe
+            // zerwanie sieci (1006) to nie wina formatu — tam ponawiamy.
+            if (!setupDone && (code == 1007 || code == 1008)) {
+                if (escalateSetup("zamknięto $code${if (reason.isBlank()) "" else " ($reason)"}")) return
+            }
+            scheduleReconnect("zamknięto $code")
         }
     }
 
@@ -328,6 +704,7 @@ class LiveSessionService : Service() {
             val fcId = call.optString("id", UUID.randomUUID().toString())
             NixiState.emit(NixiState.NixiEvent.ToolStarted(name, args.toString().take(300)))
             LogBus.log("tool.start", name)
+            lastUserActivity = System.currentTimeMillis()
 
             val result: ToolResult = if (ToolRegistry.DANGEROUS.contains(name)) {
                 val pendingId = UUID.randomUUID().toString()
@@ -335,11 +712,17 @@ class LiveSessionService : Service() {
                 NixiState.pendingActions.value =
                     NixiState.pendingActions.value +
                         NixiState.PendingAction(pendingId, "NIXI prosi o potwierdzenie", desc, name)
+                // jeśli okno rozmowy jest schowane, użytkownik dowie się z powiadomienia
+                ActionNotifier.notify(
+                    this, "NIXI czeka na zgodę",
+                    "$desc — otwórz NIXI, aby potwierdzić (samo zniknie po minucie).",
+                    short = true
+                )
                 val approved = awaitDecision(pendingId)
                 NixiState.pendingActions.value =
                     NixiState.pendingActions.value.filter { it.id != pendingId }
                 if (!approved) {
-                    ToolResult.fail("Użytkownik odrzucił tę operację. Nie wykonuj jej.")
+                    ToolResult.fail("Użytkownik nie potwierdził tej operacji. Nie wykonuj jej.")
                 } else {
                     ToolRegistry.dispatch(name, args)
                 }
@@ -356,14 +739,20 @@ class LiveSessionService : Service() {
             resp.put("response", payload)
             responses.put(resp)
 
-            // zrzut ekranu (tryb ręczny) — wysyłamy do modelu jako klatkę wideo
-            result.imageB64?.let { client?.sendImage(it) }
+            // zrzut ekranu (tryb ręczny) — klatka dla modelu PRZED odpowiedzią narzędzia
+            result.imageB64?.let { img ->
+                client?.sendImage(img)
+                tpm.addUsed(TpmGuard.tokensForImage(1152, 2400))
+            }
 
             if (!result.ok) {
-                dev.nixi.util.LogBus.log("tool.error", "$name: ${result.text.take(160)}", "warn")
+                LogBus.log("tool.error", "$name: ${result.text.take(160)}", "warn")
             }
         }
         client?.sendToolResponse(responses)
+        // odpowiedzi narzędzi też są tokenami po stronie modelu
+        tpm.addUsed(TpmGuard.tokensForText(responses.toString()))
+        publishTpm()
     }
 
     private suspend fun awaitDecision(pendingId: String): Boolean {
@@ -386,9 +775,10 @@ class LiveSessionService : Service() {
     private fun playDing(resId: Int) {
         scope.launch(Dispatchers.IO) {
             try {
-                val mp = android.media.MediaPlayer.create(this@LiveSessionService, resId)
+                val mp = android.media.MediaPlayer.create(this@LiveSessionService, resId) ?: return@launch
                 mp.setVolume(0.6f, 0.6f)
                 mp.setOnCompletionListener { it.release() }
+                mp.setOnErrorListener { m, _, _ -> runCatching { m.release() }; true }
                 mp.start()
             } catch (_: Exception) {
             }
@@ -398,43 +788,64 @@ class LiveSessionService : Service() {
     private fun endSession(reason: String) {
         if (!ended.compareAndSet(false, true)) return
         LogBus.log("live.end", reason)
+        running = false
         NixiApp.scope.launch {
             runCatching {
                 val duration = (System.currentTimeMillis() - sessionStart) / 1000
                 LocalStore.lastSessionDuration = duration
-                NixiState.inSession.value = false
-                NixiState.orbState.value = NixiState.OrbState.IDLE
-                NixiState.manualMode.value = false
-                NixiState.pendingActions.value = emptyList()
+                // Diagnostyka „NIXI nie odpowiada”: dlaczego się skończyło,
+                // ile klatek audio poszło i czy model w ogóle się odezwał.
+                LocalStore.lastSessionReason = reason
+                LocalStore.lastSessionAudioChunks = client?.sentAudioChunks ?: 0
+                LocalStore.lastSessionAudioReplies = audioReplies
+                LocalStore.lastSessionVariant = setupVariant
+                LocalStore.lastSessionSetupOk = setupDone
                 idleJob?.cancel()
-                player.stop()
-                client?.goAway()
+                tpmJob?.cancel()
+                // 1) domknij wszystko, co czeka na użytkownika
+                cancelAllDecisions()
+                NixiState.pendingActions.value = emptyList()
+                NixiState.inSession.value = false
+                NixiState.manualMode.value = false
+                NixiState.orbState.value = NixiState.OrbState.IDLE
+                // 2) dźwięk i sieć
+                runCatching { AudioBus.disableEchoCancel() }
+                runCatching { player.stop() }
+                client?.close()
                 client?.shutdown()
                 client = null
-                // wróć do nasłuchu wake (jeśli aktywny)
+                // 3) mikrofon: wróć do nasłuchu ALBO go zwolnij (nigdy nie trzymaj w tle)
                 if (LocalStore.wakeEnabled && WakeWordService.running) {
                     WakeWordService.restoreWakeConsumer()
+                } else if (!WakeWordService.running) {
+                    AudioBus.stop()
                 }
-                MediaPauseController.resumeAll()
+                // 4) muzyka
+                runCatching { MediaPauseController.resumeAll() }
                 if (LocalStore.dingEnabled) playDing(dev.nixi.R.raw.ding_stop)
+                // 5) tryb ręczny zawsze zamykamy z sesją
+                runCatching { ScreenCaptureService.stop(this@LiveSessionService) }
                 ActionNotifier.notify(
                     this@LiveSessionService, "NIXI: rozmowa zakończona",
                     "Powód: $reason • czas: ${duration / 60} min ${duration % 60} s",
                     short = true
                 )
-                // tryb ręczny zawsze zamykamy z sesją
-                ScreenCaptureService.stop(this@LiveSessionService)
-                NixiState.emit(
-                    NixiState.NixiEvent.SessionEnded(reason, duration)
-                )
-                // pamięć długotrwała: podsumowanie + fakty (tylko przy rozmowie > 3 wymiany)
-                if (transcripts.size >= 4 && LocalStore.geminiKey.isNotBlank()) {
-                    val copy = transcripts.toList()
-                    PostSessionMemory.run(this@LiveSessionService, copy, duration)
+                NixiState.emit(NixiState.NixiEvent.SessionEnded(reason, duration))
+                publishTpm()
+                // sesja = sieć działa; przy okazji nadgonić zaległe zapisy
+                runCatching { dev.nixi.db.OfflineQueue.flush(this@LiveSessionService) }
+                // 6) pamięć długotrwała: podsumowanie + fakty (tylko przy realnej rozmowie)
+                val turns = transcripts.count { it.first == "user" }
+                if (turns >= 2 && LocalStore.geminiKey.isNotBlank()) {
+                    PostSessionMemory.run(this@LiveSessionService, transcripts.toList(), duration)
                 }
                 stopForegroundCompat()
                 stopSelf()
-            }.onFailure { LogBus.logException("live.end", it) }
+            }.onFailure {
+                LogBus.logException("live.end", it)
+                runCatching { stopForegroundCompat() }
+                runCatching { stopSelf() }
+            }
         }
     }
 
@@ -446,24 +857,45 @@ class LiveSessionService : Service() {
         }
     }
 
-    private fun startForegroundCompat(title: String, text: String) {
+    private fun startForegroundCompat(title: String, text: String): Boolean = try {
         val notif = ActionNotifier.fgsNotification(title, text, NOTIF_ID)
         if (android.os.Build.VERSION.SDK_INT >= 29) {
             startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
         } else {
             startForeground(NOTIF_ID, notif)
         }
+        true
+    } catch (t: Throwable) {
+        LogBus.log("live.fgs", "startForeground nieudany: ${t.message}", "error")
+        false
     }
 
     override fun onDestroy() {
         super.onDestroy()
         if (instance === this) instance = null
-        if (sessionStarted.get()) {
+        running = false
+        // Sprzątanie awaryjne (gdy system zabije usługę bez endSession)
+        if (!ended.get()) {
             ended.set(true)
-            running = false
+            idleJob?.cancel()
+            tpmJob?.cancel()
+            cancelAllDecisions()
+            NixiState.pendingActions.value = emptyList()
+            NixiState.inSession.value = false
+            NixiState.manualMode.value = false
+            NixiState.orbState.value = NixiState.OrbState.IDLE
             runCatching { player.stop() }
             runCatching { client?.shutdown() }
+            client = null
+            if (LocalStore.wakeEnabled && WakeWordService.running) {
+                WakeWordService.restoreWakeConsumer()
+            } else {
+                runCatching { AudioBus.stop() }
+            }
+            runCatching { MediaPauseController.resumeAll() }
+            runCatching { ScreenCaptureService.stop(this) }
         }
+        scope.cancel()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
