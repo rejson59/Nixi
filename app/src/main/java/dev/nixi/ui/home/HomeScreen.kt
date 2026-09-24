@@ -1,5 +1,6 @@
 package dev.nixi.ui.home
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -8,7 +9,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.TouchApp
@@ -19,12 +24,15 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import dev.nixi.NixiState
 import dev.nixi.db.SupabaseHub
 import dev.nixi.store.LocalStore
@@ -39,6 +47,7 @@ import dev.nixi.ui.components.SectionCard
 import dev.nixi.ui.components.StatusPill
 import dev.nixi.ui.components.rememberOnResumeTick
 import dev.nixi.ui.theme.NixiOk
+import dev.nixi.ui.theme.NixiPurple
 import dev.nixi.ui.theme.NixiText
 import dev.nixi.ui.theme.NixiTextDim
 import dev.nixi.ui.theme.NixiWarn
@@ -61,7 +70,11 @@ fun HomeScreen() {
     val tpm by NixiState.tpm.collectAsState()
     val audioError by NixiState.lastAudioError.collectAsState()
     val inSession by NixiState.inSession.collectAsState()
+    val sessionError by NixiState.lastSessionError.collectAsState()
+    val checkItems by NixiState.selfCheck.collectAsState()
+    val checkRunning by NixiState.selfCheckRunning.collectAsState()
     val tick = rememberOnResumeTick()
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(tick) {
         val rows = SupabaseHub.recentConversations(8)
@@ -132,6 +145,78 @@ fun HomeScreen() {
                     modifier = Modifier.weight(1f),
                     onClick = { SessionLauncher.start(context, "manual", manual = true) },
                 )
+            }
+        }
+
+        item {
+            SectionCard(
+                title = "Rozmowa z Gemini",
+                subtitle = if (inSession) "Sesja trwa." else "Sprawdź, czy NIXI ma wszystko, czego potrzebuje.",
+                accent = when {
+                    sessionError.isNotBlank() -> dev.nixi.ui.theme.NixiErr
+                    checkItems.isEmpty() -> NixiPurple
+                    checkItems.any { it.level == dev.nixi.util.SelfCheck.Level.ERR } ->
+                        dev.nixi.ui.theme.NixiWarn
+                    else -> NixiOk
+                },
+            ) {
+                if (sessionError.isNotBlank() && !inSession) {
+                    Text(
+                        "Ostatnia próba rozmowy nie udała się:",
+                        color = NixiTextDim, fontSize = 11.sp,
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(sessionError, color = NixiWarn, fontSize = 12.sp)
+                    Spacer(Modifier.height(10.dp))
+                }
+                PillButton(
+                    text = if (checkRunning) "Sprawdzam…" else "Sprawdź NIXI",
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        scope.launch {
+                            dev.nixi.util.SelfCheck.run(context)
+                        }
+                    },
+                )
+                if (checkItems.isNotEmpty()) {
+                    Spacer(Modifier.height(12.dp))
+                    checkItems.forEachIndexed { index, item ->
+                        if (index > 0) {
+                            Spacer(Modifier.height(8.dp))
+                            GlassDivider()
+                            Spacer(Modifier.height(8.dp))
+                        }
+                        val color = when (item.level) {
+                            dev.nixi.util.SelfCheck.Level.OK -> NixiOk
+                            dev.nixi.util.SelfCheck.Level.WARN -> NixiWarn
+                            dev.nixi.util.SelfCheck.Level.ERR -> dev.nixi.ui.theme.NixiErr
+                        }
+                        Row(verticalAlignment = Alignment.Top) {
+                            Box(
+                                Modifier
+                                    .padding(top = 6.dp)
+                                    .size(9.dp)
+                                    .clip(CircleShape)
+                                    .background(color)
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(item.label, color = NixiText, fontSize = 13.sp)
+                                Text(item.detail, color = NixiTextDim, fontSize = 11.sp)
+                                if (item.fix.isNotBlank()) {
+                                    Text(item.fix, color = NixiPurple, fontSize = 11.sp)
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Jedno tapnięcie i NIXI sama sprawdzi klucz API, nazwę modelu, " +
+                            "mikrofon, nasłuch, bazę i uprawnienia — i powie, co poprawić.",
+                        color = NixiTextDim, fontSize = 11.sp,
+                    )
+                }
             }
         }
 

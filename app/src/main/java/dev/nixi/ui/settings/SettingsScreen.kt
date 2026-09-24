@@ -1,5 +1,6 @@
 package dev.nixi.ui.settings
 
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
@@ -19,6 +20,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -31,6 +33,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import dev.nixi.NixiState
 import dev.nixi.accessibility.NixiAccessibilityService
 import dev.nixi.db.SupabaseHub
@@ -89,7 +92,11 @@ fun SettingsScreen() {
 
     var sbUrl by remember { mutableStateOf(LocalStore.supabaseUrl) }
     var sbKey by remember { mutableStateOf(LocalStore.supabaseKey) }
+    var sbPat by remember { mutableStateOf(LocalStore.supabasePat) }
     var sbStatus by remember { mutableStateOf("") }
+    var sbBusy by remember { mutableStateOf(false) }
+    val dbStatus by dev.nixi.db.DbProvisioner.status.collectAsState()
+    val scope2 = androidx.compose.runtime.rememberCoroutineScope()
 
     var spId by remember { mutableStateOf(LocalStore.spotifyClientId) }
     var spStatus by remember {
@@ -109,6 +116,16 @@ fun SettingsScreen() {
 
     val enroll by EnrollmentController.state.collectAsState()
     val tpmInfo by NixiState.tpm.collectAsState()
+
+    // Pierwsze wejście w „Dane": sprawdź, czego brakuje w bazie — bez
+    // męczenia sieci przy każdym powrocie do ustawień.
+    LaunchedEffect(tab, resumeTick) {
+        if (tab == 2 && SupabaseHub.available && dev.nixi.db.DbProvisioner.status.value == null) {
+            val st = dev.nixi.db.DbProvisioner.check()
+            sbStatus = if (st.ready) st.summary
+            else "${st.summary} — naciśnij „Utwórz / zaktualizuj tabele”."
+        }
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -376,10 +393,101 @@ fun SettingsScreen() {
                         onClick = {
                             LocalStore.supabaseUrl = sbUrl
                             LocalStore.supabaseKey = sbKey
+                            LocalStore.supabasePat = sbPat
                             SupabaseHub.rebuild()
                             SupabaseHub.refreshAll(force = true)
-                            sbStatus = "Zapisano i odświeżono odkrywanie tabel."
+                            scope2.launch {
+                                val st = dev.nixi.db.DbProvisioner.check()
+                                if (st.ready) {
+                                    sbStatus = "Zapisano. ${st.summary} — wszystko gotowe."
+                                } else {
+                                    // od razu próbujemy założyć brakujące tabele
+                                    val out = dev.nixi.db.DbProvisioner.provision()
+                                    sbStatus = "Zapisano. " + out.message
+                                    if (out.needsManualSql) offerManualSql(context)
+                                }
+                            }
                         },
+                    )
+                    if (sbStatus.isNotBlank()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(sbStatus, color = NixiTextDim, fontSize = 11.sp)
+                    }
+                }
+            }
+
+            item {
+                val ready = dbStatus?.ready == true
+                SectionCard(
+                    title = "Struktura bazy",
+                    subtitle = "NIXI zakłada brakujące tabele i dokłada nowe kolumny — sama.",
+                    accent = when {
+                        !SupabaseHub.available -> NixiWarn
+                        ready -> NixiOk
+                        else -> NixiWarn
+                    },
+                ) {
+                    Text(
+                        dbStatus?.summary ?: "Nie sprawdzałam jeszcze struktury bazy.",
+                        color = NixiText, fontSize = 13.sp,
+                    )
+                    val missingNow = dbStatus?.missing.orEmpty()
+                    if (missingNow.isNotEmpty()) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "Brakuje: " + missingNow.joinToString(", ") +
+                                ". Naciśnij „Utwórz / zaktualizuj tabele”.",
+                            color = NixiTextDim, fontSize = 11.sp,
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        PillButton(
+                            text = if (sbBusy) "Pracuję…" else "Utwórz / zaktualizuj tabele",
+                            modifier = Modifier.weight(1f),
+                            onClick = {
+                                sbBusy = true
+                                scope2.launch {
+                                    LocalStore.supabaseUrl = sbUrl
+                                    LocalStore.supabaseKey = sbKey
+                                    LocalStore.supabasePat = sbPat
+                                    SupabaseHub.rebuild()
+                                    SupabaseHub.refreshAll(force = true)
+                                    val out = dev.nixi.db.DbProvisioner.provision()
+                                    sbStatus = out.message
+                                    if (out.needsManualSql) offerManualSql(context)
+                                    sbBusy = false
+                                }
+                            },
+                        )
+                        PillButton(
+                            text = "Sprawdź",
+                            filled = false,
+                            onClick = {
+                                scope2.launch {
+                                    LocalStore.supabaseUrl = sbUrl
+                                    LocalStore.supabaseKey = sbKey
+                                    SupabaseHub.rebuild()
+                                    SupabaseHub.refreshAll(force = true)
+                                    val st = dev.nixi.db.DbProvisioner.check()
+                                    sbStatus = "Sprawdzone: ${st.summary}."
+                                }
+                            },
+                        )
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    GlassDivider()
+                    Spacer(Modifier.height(12.dp))
+                    NixiField(
+                        "Token osobisty Supabase (opcjonalny, sbp_…)",
+                        sbPat,
+                    ) { sbPat = it }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Klucz anon nie ma prawa zmieniać struktury bazy (to zabezpieczenie " +
+                            "Supabase). Z tokenem osobistym NIXI zrobi to sama, bez wklejania SQL-a. " +
+                            "Token trzyma się tylko na tym telefonie.",
+                        color = NixiTextDim, fontSize = 11.sp,
                     )
                     if (sbStatus.isNotBlank()) {
                         Spacer(Modifier.height(8.dp))
@@ -524,16 +632,43 @@ fun SettingsScreen() {
                             )
                         },
                     )
-                    PermRow(
-                        "Usługa dostępności (sterowanie w trybie ręcznym)",
-                        a11yOn,
-                        openSettings = {
-                            context.startActivity(
-                                Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            )
-                        },
-                    )
+                    if (a11yOn) {
+                        PermRow(
+                            "Usługa dostępności (sterowanie w trybie ręcznym)",
+                            true,
+                            openSettings = {
+                                context.startActivity(
+                                    Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                            },
+                        )
+                    } else if (NixiAccessibilityService.isEnabledInSystem(context)) {
+                        // włączona w systemie, ale jeszcze nie podłączona — to NIE błąd
+                        PermRow(
+                            "Usługa dostępności — włączona, czeka na połączenie",
+                            false,
+                            grantedLabel = "w systemie",
+                            openSettings = {
+                                context.startActivity(
+                                    Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                            },
+                        )
+                    } else {
+                        PermRow(
+                            "Usługa dostępności (tylko tryb ręczny)",
+                            false,
+                            grantedLabel = "wyłączona",
+                            openSettings = {
+                                context.startActivity(
+                                    Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                            },
+                        )
+                    }
                     if (Build.VERSION.SDK_INT >= 33) {
                         PermRow(
                             "Dokładne alarmy (przypomnienia)",
@@ -619,7 +754,12 @@ private fun SwitchRow(label: String, value: Boolean, onChange: (Boolean) -> Unit
 
 /** Wiersz uprawnienia: nazwa, stan i przycisk „Ustaw”, gdy brakuje zgody. */
 @Composable
-private fun PermRow(label: String, granted: Boolean, openSettings: () -> Unit) {
+private fun PermRow(
+    label: String,
+    granted: Boolean,
+    grantedLabel: String? = null,
+    openSettings: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -629,7 +769,7 @@ private fun PermRow(label: String, granted: Boolean, openSettings: () -> Unit) {
         Column(Modifier.weight(1f)) {
             Text(label, color = NixiText, fontSize = 13.sp)
             Text(
-                if (granted) "włączone" else "wymaga zgody",
+                grantedLabel ?: if (granted) "włączone" else "wymaga zgody",
                 color = if (granted) NixiOk else NixiWarn, fontSize = 11.sp,
                 fontWeight = FontWeight.Medium,
             )
@@ -657,5 +797,30 @@ private fun StepLine(number: String, text: String) {
             modifier = Modifier.width(18.dp),
         )
         Text(text, color = NixiTextDim, fontSize = 11.sp, modifier = Modifier.weight(1f))
+    }
+}
+
+/**
+ * Gdy klucz anon nie może zmienić struktury bazy (a nie ma tokenu osobistego):
+ * kopiujemy gotowy SQL do schowka i otwieramy SQL Editor tego projektu —
+ * użytkownikowi zostaje jedno wklejenie, a potem aplikacja robi resztę sama.
+ */
+private fun offerManualSql(context: Context) {
+    runCatching {
+        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        cm.setPrimaryClip(
+            android.content.ClipData.newPlainText("nixi-schema", dev.nixi.db.DbSchema.SQL)
+        )
+    }
+    val ref = dev.nixi.db.DbProvisioner.projectRef()
+    if (ref.isNotBlank()) {
+        runCatching {
+            context.startActivity(
+                Intent(
+                    Intent.ACTION_VIEW,
+                    android.net.Uri.parse("https://supabase.com/dashboard/project/$ref/sql/new")
+                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        }
     }
 }

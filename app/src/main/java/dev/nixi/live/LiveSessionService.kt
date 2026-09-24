@@ -144,6 +144,16 @@ class LiveSessionService : Service() {
     @Volatile private var reconnectAttempts = 0
     private var reconnectJob: Job? = null
 
+    /**
+     * Wariant wiadomości `setup` (patrz [buildSetup]) i licznik prób jego
+     * dopasowania. `-1` = jeszcze nie wiemy, który działa — bierzemy domyślny.
+     */
+    @Volatile private var setupVariant = -1
+    private var setupTries = 0
+
+    /** True po `setupComplete` — czyli sesja naprawdę rozmawia z modelem. */
+    @Volatile private var setupDone = false
+
     override fun onCreate() {
         super.onCreate()
         ToolContext.app = NixiApp.app
@@ -235,6 +245,11 @@ class LiveSessionService : Service() {
             return
         }
 
+        setupDone = false
+        setupTries = 0
+        setupVariant = -1
+        NixiState.lastSessionError.value = ""
+
         player.start()
         // Usuwanie echa z głośnika — bez tego mikrofon zbiera głos NIXI
         // i wysyła go do modelu (fałszywe przerwania). Jeśli telefon nie
@@ -263,31 +278,54 @@ class LiveSessionService : Service() {
      * `sessionResumption` + uchwyt z poprzedniego połączenia pozwalają
      * kontynuować rozmowę (kontekst zostaje po stronie serwera).
      */
-    private fun buildSetup(prompt: String, handle: String? = null): JSONObject {
+    private fun buildSetup(prompt: String, handle: String? = null, variant: Int = 0): JSONObject {
+        // Ten sam model, instrukcja i narzędzia w każdym wariancie — różni się
+        // tylko miejsce, w którym podajemy tryb odpowiedzi i głos. Dokumentacja
+        // Google jest tu niespójna: przewodnik po WebSocketach pokazuje
+        // `responseModalities` na najwyższym poziomie `setup`, a referencja API
+        // trzyma je w `generationConfig` (i nie wymienia już `speechConfig`
+        // na najwyższym poziomie). Zamiast zgadywać — próbujemy po kolei,
+        // a działający wariant zapamiętujemy (LocalStore.liveSetupVariant).
         val setup = JSONObject()
             .put("model", "models/${LocalStore.geminiModel}")
-            .put("responseModalities", JSONArray().put("AUDIO"))
             .put(
                 "systemInstruction",
                 JSONObject().put("parts", JSONArray().put(JSONObject().put("text", prompt)))
             )
             .put("tools", JSONArray().put(JSONObject().put("functionDeclarations", ToolRegistry.declarations())))
-        setup.put(
-            "speechConfig",
-            JSONObject()
-                .put(
-                    "voiceConfig",
-                    JSONObject().put(
-                        "prebuiltVoiceConfig",
-                        JSONObject().put("voiceName", LocalStore.voiceName.ifBlank { "Puck" })
-                    )
+
+        val voice = LocalStore.voiceName.ifBlank { "Puck" }
+        val speech = JSONObject()
+            .put(
+                "voiceConfig",
+                JSONObject().put(
+                    "prebuiltVoiceConfig",
+                    JSONObject().put("voiceName", voice)
                 )
-        )
+            )
+        when (variant) {
+            // 0 — wg referencji API: wszystko w generationConfig
+            0 -> setup.put(
+                "generationConfig",
+                JSONObject()
+                    .put("responseModalities", JSONArray().put("AUDIO"))
+                    .put("speechConfig", speech)
+            )
+            // 1 — wg przewodnika WebSocket: na najwyższym poziomie `setup`
+            1 -> setup
+                .put("responseModalities", JSONArray().put("AUDIO"))
+                .put("speechConfig", speech)
+            // 2 — minimalny: bez trybu odpowiedzi i bez głosu (serwer użyje
+            //     domyślnych). Zostaje model, instrukcja i narzędzia.
+            else -> Unit
+        }
         // Uwaga: w speechConfig NIE ma pola audioConfig — Live API zawsze
         // zwraca PCM 24 kHz LINEAR16, a nieznane pole kończyło się błędem 400.
-        // tekst rozmowy (user/nixi) do podsumowań i pamięci — serwer wysyła tylko po włączeniu
-        setup.put("inputAudioTranscription", JSONObject())
-        setup.put("outputAudioTranscription", JSONObject())
+        if (variant <= 1) {
+            // tekst rozmowy (user/nixi) do podsumowań i pamięci
+            setup.put("inputAudioTranscription", JSONObject())
+            setup.put("outputAudioTranscription", JSONObject())
+        }
         setup.put(
             "sessionResumption",
             JSONObject().apply { if (!handle.isNullOrBlank()) put("handle", handle) }
@@ -308,8 +346,13 @@ class LiveSessionService : Service() {
     private fun connectSession() {
         val c = client ?: return
         val handle = c.resumptionHandle
-        if (handle.isNullOrBlank()) c.connect(buildSetup(promptText))
-        else c.reconnect(buildSetup(promptText, handle))
+        if (setupVariant < 0) setupVariant = LocalStore.liveSetupVariant
+        if (setupDone) setupTries = 0
+        val setup = buildSetup(promptText, handle, setupVariant)
+        // Pierwsze gniazdo w tej sesji: connect(). Każde następne — również
+        // po zmianie wariantu setupu — przez reconnect(), bo ono najpierw
+        // zamyka stare gniazdo (inaczej zostałoby „zombie" wysyłające audio).
+        if (c.connectCount == 0) c.connect(setup) else c.reconnect(setup)
         // Prompt systemowy też jest rozliczany przez serwer — liczymy go do
         // budżetu przy każdym połączeniu (wcześniej TPM widział tylko audio).
         tpm.addUsed(TpmGuard.tokensForText(promptText))
@@ -326,6 +369,46 @@ class LiveSessionService : Service() {
 
     /**
      * Zaplanuj wznowienie po zerwaniu sieci / goAway. Ograniczone do
+     * [MAX_RECONNECTS] prób z rosnącym odstępem; po ich wyczerpaniu kończymy
+     * sesję z jasnym powodem (użytkownik nie zostaje z martwym mikrofonem).
+     */
+    /**
+     * Przechodzi do kolejnego wariantu `setup`. Zwraca true, gdy przejęliśmy
+     * obsługę błędu (nie wołaj wtedy scheduleReconnect/endSession).
+     */
+    private fun escalateSetup(why: String): Boolean {
+        if (ended.get()) return false
+        val tried = setupTries
+        val next = setupVariant + 1
+        if (tried >= 3 || next > 2) {
+            NixiState.lastSessionError.value =
+                "Nie udało się rozpocząć rozmowy z Gemini ($why). Sprawdź klucz API i model w Ustawieniach → Mózg."
+            ActionNotifier.notify(
+                this, "NIXI: nie mogę rozmawiać",
+                "Gemini odrzuciło konfigurację sesji ($why). Sprawdź klucz API i nazwę modelu.",
+                short = false
+            )
+            endSession("konfiguracja sesji odrzucona")
+            return true
+        }
+        setupTries++
+        setupVariant = next
+        LogBus.log(
+            "live.setup",
+            "wariant $next nie zadziałał ($why) — próbuję kolejny ($setupTries/3)",
+            "warn"
+        )
+        NixiState.orbState.value = NixiState.OrbState.THINKING
+        scope.launch {
+            delay(250)
+            if (ended.get()) return@launch
+            connectSession()
+        }
+        return true
+    }
+
+    /**
+     * Ponowne połączenie po zerwaniu (sieć, goAway, restart procesu).
      * [MAX_RECONNECTS] prób z rosnącym odstępem; po ich wyczerpaniu kończymy
      * sesję z jasnym powodem (użytkownik nie zostaje z martwym mikrofonem).
      */
@@ -482,9 +565,22 @@ class LiveSessionService : Service() {
         override fun onSetupComplete() {
             reconnectAttempts = 0
             reconnectJob?.cancel()
-            LogBus.log("live.setup", "sesja gotowa (trigger=$trigger, połączenie #${client?.connectCount ?: 1})")
+            val first = !setupDone
+            setupDone = true
+            // Ten wariant zadziałał — zapamiętujemy go, żeby następna sesja
+            // (i restart telefonu) nie powtarzała nieudanych prób.
+            if (setupTries > 0 || LocalStore.liveSetupVariant != setupVariant) {
+                LocalStore.liveSetupVariant = setupVariant
+                LogBus.log("live.setup", "działający wariant setupu: $setupVariant (zapisany)")
+            }
+            setupTries = 0
+            NixiState.lastSessionError.value = ""
+            LogBus.log(
+                "live.setup",
+                "sesja gotowa (trigger=$trigger, połączenie #${client?.connectCount ?: 1}, wariant=$setupVariant)"
+            )
             NixiState.orbState.value = NixiState.OrbState.LISTENING
-            if (LocalStore.dingEnabled) playDing(dev.nixi.R.raw.ding_start)
+            if (first && LocalStore.dingEnabled) playDing(dev.nixi.R.raw.ding_start)
         }
 
         override fun onAudio(pcm: ByteArray) {
@@ -542,7 +638,20 @@ class LiveSessionService : Service() {
         }
 
         override fun onApiError(code: Int, message: String) {
-            LogBus.log("live.error", "code=$code $message", "error")
+            LogBus.log(
+                "live.error",
+                "code=$code wariant=${setupVariant} setup=${if (setupDone) "ok" else "nieudany"} $message",
+                "error"
+            )
+            NixiState.lastSessionError.value = "$code: ${message.take(300)}"
+
+            // Dopasowanie formatu `setup`: dopóki serwer nie potwierdził
+            // setupComplete, każdy błąd traktujemy jak „ten wariant jest zły”
+            // i próbujemy następny — zamiast zamykać sesję bez słowa.
+            if (!setupDone && (code == 400 || code == 401 || code == 1007 || code == 1008)) {
+                if (escalateSetup("błąd $code")) return
+            }
+
             when {
                 // limit tempa: nie zabijamy rozmowy — TpmGuard wstrzyma nadawanie
                 code == 429 -> {
@@ -572,6 +681,12 @@ class LiveSessionService : Service() {
             if (ended.get()) return
             // nasze własne zamknięcie (koniec sesji) — nic nie rób
             if (client?.closedByUs == true) return
+            // Serwer potrafi odrzucić zły `setup` zamknięciem gniazda bez
+            // komunikatu `error` (np. 1007 „invalid frame payload”). Zwykłe
+            // zerwanie sieci (1006) to nie wina formatu — tam ponawiamy.
+            if (!setupDone && (code == 1007 || code == 1008)) {
+                if (escalateSetup("zamknięto $code${if (reason.isBlank()) "" else " ($reason)"}")) return
+            }
             scheduleReconnect("zamknięto $code")
         }
     }

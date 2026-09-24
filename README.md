@@ -135,12 +135,32 @@ Wymagania: JDK 17, Gradle 8.10+ (workflow sam ustawia oba).
 
 1. **Klucz Gemini** — aistudio.google.com/apikey (darmowy plan; model Live
    musi być dostępny dla Twojego klucza — na free tierze Live ma 65K TPM, 10 RPM, 250 RPD).
-2. **Supabase** — utwórz projekt, wklej `supabase/seed.sql` w SQL Editorze,
-   skopiuj **URL projektu** i **klucz anon**.
+2. **Supabase** — utwórz projekt i skopiuj **URL projektu** oraz **klucz anon**.
+   Tabele zakładają się **same**: aplikacja tworzy brakujące i dokłada nowe
+   kolumny przy każdym starcie (oraz przyciskiem w Ustawieniach → Dane).
+   Jeśli chcesz pełnej automatyzacji od pierwszej chwili, dodaj jeszcze
+   **token osobisty** (sbp_…, supabase.com/dashboard/account/tokens).
+   Bez tokenu wystarczy raz wkleić `supabase/seed.sql` w SQL Editorze —
+   od tego momentu NIXI wykonuje ten sam SQL sama, przez funkcję
+   `nixi_exec_sql`, którą tamten plik tworzy.
 3. Zainstaluj APK, uruchom, przejdź onboarding:
    klucz Gemini → Supabase → **3× „Hej Nixi”** (rejestracja) → uprawnienia → głos.
 4. **Ustaw pracę w tle** (sekcja niżej) — to nie jest opcjonalne na Xiaomi.
 5. Gotowe: powiedz **„Hej Nixi”** (muzyka się zatrzyma, kula wjedzie w róg ekranu).
+
+### Gdy NIXI milczy — jedno tapnięcie
+
+Na ekranie głównym jest karta **„Rozmowa z Gemini”** z przyciskiem
+**„Sprawdź NIXI”**. Samokontrola sprawdza po kolei: klucz API Gemini
+(zapytuje listę modeli, więc wykryje też zły klucz i model bez trybu Live),
+nazwę modelu, mikrofon, nasłuch „Hej Nixi”, połączenie z Supabase i strukturę
+tabel, usługę dostępności oraz dostęp do powiadomień — i przy każdym punkcie
+podaje, co zrobić, jeśli coś nie działa. Powód nieudanej rozmowy (dokładny
+komunikat z serwera Gemini) pokazuje się też w pigułce rozmowy.
+
+NIXI sama dopasowuje format konfiguracji sesji Live (dokumentacja Google ma
+tu dwa różne warianty — nie ma sensu, żebyś zgadywał, który jest właściwy):
+próbuje po kolei, a działający zapamiętuje.
 
 ### Przydatne zdania na start
 
@@ -296,9 +316,12 @@ i tak działa niezależnie od wywołania długim przytrzymaniem).
 - **Budziki**: Android nie daje API odczytu/usuwania alarmów z zegara — NIXI
   zarządza alarmami, które sama ustawiła (lustro w `alarms`); do zdjęcia
   ostatniego otwiera listę alarmów.
-- **DDL** (nowe tabele/kolumny): PostgREST nie udostępnia SQL — NIXI i
-  aplikacja **generują i pokazują SQL**, a Ty wklejasz w SQL Editorze
-  (deep-link jednym tapnięciem). Wiersze: pełny CRUD.
+- **DDL** (nowe tabele/kolumny): klucz anon Supabase nie może zmieniać
+  struktury bazy (to zabezpieczenie Supabase, nie usterka NIXI). Dlatego
+  aplikacja zakłada i aktualizuje tabele trzema drogami: **token osobisty**
+  (sbp_…) → **funkcja `nixi_exec_sql`** w bazie → **jednorazowe wklejenie
+  `supabase/seed.sql`** (przycisk kopiuje SQL do schowka i otwiera SQL
+  Editor). Wiersze: pełny CRUD.
 - **Spotify**: wymaga Client ID z developer.spotify.com (PKCE,
   bez sekretu w aplikacji).
 - **Rutyny**: wstrzykiwane w prompt (trigger → kroki) — działa na rozmowie;
@@ -308,10 +331,25 @@ i tak działa niezależnie od wywołania długim przytrzymaniem).
 - **Kula nad blokadą** wymaga zgody systemu na wezwanie na pełnym ekranie —
   bez niej dostaniesz heads-up zamiast okna.
 
+## Historia zmian (skrót)
+
+- **1.3.2** — naprawa „NIXI nie odpowiada”: automatyczne dopasowanie formatu
+  konfiguracji sesji Live + dokładny komunikat błędu z serwera (w pigułce
+  i na ekranie głównym); samokontrola „Sprawdź NIXI”; samoczynne zakładanie
+  i aktualizowanie tabel Supabase (token osobisty / `nixi_exec_sql` /
+  jednorazowe wklejenie SQL); trzystanowy wskaźnik usługi dostępności
+  (działa / włączona, czeka / wyłączona) zamiast fałszywego „nie działa”.
+- **1.3.1** — szkło na ekranach Logi, Tabele i szczegółach tabeli.
+- **1.3.0** — jedna szklana pigułka NIXI ze slide-in, posegregowane
+  ustawienia, szklany styl wszystkich ekranów.
+- **1.2.0** — przebudowany detektor „Hej Nixi” (kaskada mel + DTW),
+  wymaga ponownego nagrania frazy.
+
 ## Bezpieczeństwo
 
-- Klucze (Gemini, Supabase anon, Spotify token) trzymasz **lokalnie**
-  w prywatnych SharedPreferences urządzenia.
+- Klucze (Gemini, Supabase anon, token osobisty, Spotify token) trzymasz
+  **lokalnie** w prywatnych SharedPreferences urządzenia — nie idą nigdzie
+  poza Twój projekt (token osobisty tylko do api.supabase.com).
 - RLS w seed.sql jest permissive, bo to osobisty projekt — nie udostępniaj
   klucza anon publicznie.
 - Tryb ręczny uruchamia się **tylko** z Twojej zgody (systemowy konsent)

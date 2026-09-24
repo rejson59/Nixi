@@ -20,7 +20,48 @@ class NixiAccessibilityService : AccessibilityService() {
     companion object {
         @Volatile var instance: NixiAccessibilityService? = null
 
+        /** Usługa działa i jest podłączona (można nią sterować ekranem). */
         fun isAvailable(): Boolean = instance != null
+
+        /**
+         * Czy usługa jest WŁĄCZONA w ustawieniach systemowych.
+         *
+         * To inna informacja niż [isAvailable]: system potrafi trzymać usługę
+         * na liście, ale jeszcze jej nie podłączyć (albo już odłączyć po
+         * ubiciu procesu). Wcześniej aplikacja pokazywała „wyłączone” w obu
+         * przypadkach — i wyglądało to jak błąd, choć usługa była włączona.
+         */
+        fun isEnabledInSystem(context: android.content.Context): Boolean {
+            val expected = context.packageName + "/" + NixiAccessibilityService::class.java.name
+            val enabled = try {
+                android.provider.Settings.Secure.getString(
+                    context.contentResolver,
+                    android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+                ).orEmpty()
+            } catch (_: Throwable) {
+                ""
+            }
+            if (enabled.isNotBlank()) {
+                // system bywa zapisany skrótem (pakiet/.klasa)
+                val short = context.packageName + "/." + NixiAccessibilityService::class.java.simpleName
+                enabled.split(':').forEach { entry ->
+                    if (entry.equals(expected, ignoreCase = true) ||
+                        entry.equals(short, ignoreCase = true)
+                    ) return true
+                }
+                // lista jest znana i naszej usługi w niej nie ma — koniec
+                return false
+            }
+            // nie udało się odczytać listy (rzadkie) — zostaje sam przełącznik
+            return try {
+                android.provider.Settings.Secure.getInt(
+                    context.contentResolver,
+                    android.provider.Settings.Secure.ACCESSIBILITY_ENABLED
+                ) == 1
+            } catch (_: Throwable) {
+                false
+            }
+        }
     }
 
     override fun onServiceConnected() {

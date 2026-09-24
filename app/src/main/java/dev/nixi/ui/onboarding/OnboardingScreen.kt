@@ -42,6 +42,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,6 +52,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import dev.nixi.accessibility.NixiAccessibilityService
 import dev.nixi.notif.NixiNotificationListener
 import dev.nixi.store.LocalStore
@@ -153,29 +155,56 @@ private fun StepGemini(onNext: () -> Unit) {
 private fun StepSupabase(onNext: () -> Unit) {
     var url by remember { mutableStateOf(LocalStore.supabaseUrl) }
     var apiKey by remember { mutableStateOf(LocalStore.supabaseKey) }
+    var pat by remember { mutableStateOf(LocalStore.supabasePat) }
+    var busy by remember { mutableStateOf(false) }
+    var status by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
     Title("Pamięć: Supabase")
     Text(
         "Tutaj NIXI trzyma Twoje dane (kalendarz, budziki, pamięć…). " +
             "Skopiuj URL projektu i klucz anon z dashboardu Supabase. " +
-            "W repo znajdziesz gotowy supabase/seed.sql z tabelami.",
+            "Tabele zakładają się same — resztą NIXI zajmie się po zapisie.\n\n" +
+            "Klucz anon nie może zmieniać struktury bazy (to zabezpieczenie Supabase). " +
+            "Jeśli chcesz, żebym tworzyła tabele bez pytania Cię o cokolwiek, " +
+            "wklej też token osobisty (sbp_…) z supabase.com/dashboard/account/tokens. " +
+            "Bez tokenu pokażę gotowy SQL do wklejenia raz w SQL Editorze.",
         color = NixiTextDim, fontSize = 13.sp,
     )
     Spacer(Modifier.height(14.dp))
     NixiField("URL projektu (https://xyz.supabase.co)", url) { url = it }
     Spacer(Modifier.height(10.dp))
     NixiField("Klucz anon", apiKey) { apiKey = it }
+    Spacer(Modifier.height(10.dp))
+    NixiField("Token osobisty (opcjonalny, sbp_…)", pat) { pat = it }
     Spacer(Modifier.height(20.dp))
+    if (status.isNotBlank()) {
+        Text(status, color = NixiTextDim, fontSize = 12.sp)
+        Spacer(Modifier.height(10.dp))
+    }
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        TextButton(onClick = onNext) { Text("Pomiń na razie", color = NixiTextDim) }
+        TextButton(onClick = onNext, enabled = !busy) { Text("Pomiń na razie", color = NixiTextDim) }
         Button(
             onClick = {
                 LocalStore.supabaseUrl = url
                 LocalStore.supabaseKey = apiKey
-                onNext()
+                LocalStore.supabasePat = pat
+                dev.nixi.db.SupabaseHub.rebuild()
+                dev.nixi.db.SupabaseHub.refreshAll(force = true)
+                busy = true
+                status = "Zakładam i aktualizuję tabele…"
+                scope.launch {
+                    val out = dev.nixi.db.DbProvisioner.provision()
+                    status = out.message
+                    if (out.needsManualSql) {
+                        status = out.message + " Skopiowałam SQL do schowka."
+                    }
+                    busy = false
+                    if (out.ok) onNext()
+                }
             },
-            enabled = url.startsWith("https://") && apiKey.length >= 20,
+            enabled = !busy && url.startsWith("https://") && apiKey.length >= 20,
             colors = ButtonDefaults.buttonColors(containerColor = NixiPurple),
-        ) { Text("Dalej") }
+        ) { Text(if (busy) "Pracuję…" else "Dalej") }
     }
 }
 

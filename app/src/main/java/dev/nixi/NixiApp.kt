@@ -57,6 +57,27 @@ class NixiApp : Application() {
         runCatching { dev.nixi.boot.WakeWatchdog.arm(this) }
             .onFailure { dev.nixi.util.LogBus.log("watchdog", it.message ?: "?", "warn") }
 
+        // Struktura bazy: „niech same się utworzą”. Po starcie (spokojnie,
+        // żeby nie konkurować o sieć z pierwszymi zapytaniami) sprawdzamy,
+        // których tabel brakuje, i próbujemy je założyć — bez pytania
+        // użytkownika o cokolwiek, jeśli tylko mamy do tego prawo.
+        scope.launch {
+            kotlinx.coroutines.delay(3000)
+            runCatching {
+                if (LocalStore.supabaseUrl.isNotBlank() && LocalStore.supabaseKey.isNotBlank()) {
+                    val st = dev.nixi.db.DbProvisioner.check()
+                    if (st.missing.isNotEmpty()) {
+                        val out = dev.nixi.db.DbProvisioner.provision()
+                        dev.nixi.util.LogBus.log(
+                            "db.provision",
+                            "auto: ${st.summary} → ${out.message}",
+                            if (out.ok) "info" else "warn"
+                        )
+                    }
+                }
+            }
+        }
+
         // Zaległe zapisy z kolejki offline (pamięć/logi z czasu bez sieci).
         scope.launch {
             runCatching { dev.nixi.db.OfflineQueue.flush(this@NixiApp) }

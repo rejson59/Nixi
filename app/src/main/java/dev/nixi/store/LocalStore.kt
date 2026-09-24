@@ -29,6 +29,17 @@ object LocalStore {
         get() = prefs.getString("memory_model", "gemini-3.8-flash") ?: "gemini-3.8-flash"
         set(v) = prefs.edit().putString("memory_model", v.trim()).apply()
 
+    /**
+     * Który wariant wiadomości `setup` rozmawia z Gemini (patrz
+     * [dev.nixi.live.LiveSessionService.buildSetup]): 0 = wszystko w
+     * `generationConfig` (referencja API), 1 = na najwyższym poziomie
+     * (przewodnik WebSocket), 2 = minimalny. Aplikacja dopasowuje go sama
+     * i zapisuje ten, który zadziałał, żeby nie powtarzać nieudanych prób.
+     */
+    var liveSetupVariant: Int
+        get() = prefs.getInt("live_setup_variant", 0)
+        set(v) = prefs.edit().putInt("live_setup_variant", v).apply()
+
     // ── Supabase ───────────────────────────────────────────────────────────
     var supabaseUrl: String
         get() = prefs.getString("supabase_url", "") ?: ""
@@ -37,6 +48,16 @@ object LocalStore {
     var supabaseKey: String
         get() = prefs.getString("supabase_key", "") ?: ""
         set(v) = prefs.edit().putString("supabase_key", v.trim()).apply()
+
+    /**
+     * Opcjonalny „personal access token” Supabase (sbp_…) — tylko do
+     * automatycznego tworzenia i aktualizowania tabel. Klucz anon nie ma
+     * prawa zmieniać struktury bazy (to zabezpieczenie Supabase), więc bez
+     * tego tokenu aplikacja przygotowuje SQL i prowadzi Cię do SQL Editora.
+     */
+    var supabasePat: String
+        get() = prefs.getString("supabase_pat", "") ?: ""
+        set(v) = prefs.edit().putString("supabase_pat", v.trim()).apply()
 
     // ── Głos / sesja ───────────────────────────────────────────────────────
     var voiceName: String

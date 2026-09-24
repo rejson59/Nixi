@@ -181,6 +181,7 @@ fun ConversationUi(
     val manual by NixiState.manualMode.collectAsState()
     val pending by NixiState.pendingActions.collectAsState()
     val lastTool by NixiState.lastToolLine.collectAsState()
+    val sessionError by NixiState.lastSessionError.collectAsState()
     val pendingSql by NixiState.pendingSql.collectAsState()
     val tpm by NixiState.tpm.collectAsState()
 
@@ -271,6 +272,15 @@ fun ConversationUi(
                                     color = NixiTextDim,
                                     fontSize = 11.sp,
                                     maxLines = 2,
+                                )
+                            }
+                            if (sessionError.isNotBlank()) {
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "⚠ " + sessionError,
+                                    color = NixiWarn,
+                                    fontSize = 11.sp,
+                                    maxLines = 3,
                                 )
                             }
                             if (tpm.limit > 0) {
