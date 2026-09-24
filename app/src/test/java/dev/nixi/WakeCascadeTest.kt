@@ -168,6 +168,29 @@ class WakeCascadeTest {
     }
 
     @Test
+    fun `tryb ECO tez rozpoznaje fraze (hop 20 ms i szablon przeskalowany)`() {
+        // ECO to hop 20 ms i 8 pasm w pierwszym stopniu, a szablony są zapisane
+        // w 10 ms — bez przeskalowania tempa w WakeModel.derive nic by nie
+        // zagrało, więc to jest test na właśnie tę ścieżkę.
+        val engine = WakeEngine()
+        engine.configure(WakeEngine.Mode.ECO, 0.5f)
+        enroll(engine, seedBase = 400)
+
+        val test = keyword(Random(880))
+        var hit = false
+        var i = 0
+        while (i < test.size && !hit) {
+            val len = minOf(1024, test.size - i)
+            val chunk = ShortArray(len)
+            System.arraycopy(test, i, chunk, 0, len)
+            if (engine.onPcm(chunk, len)) hit = true
+            i += len
+        }
+        println("ECO: ${engine.statsSummary()}")
+        assertTrue("ECO nie rozpoznało frazy (${engine.statsSummary()})", hit)
+    }
+
+    @Test
     fun `stary format szablonu jest odrzucany i widac flage rejestracji`() {
         val engine = WakeEngine()
         engine.configure(WakeEngine.Mode.STANDARD, 0.5f)

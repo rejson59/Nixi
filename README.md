@@ -65,6 +65,14 @@ Ta wersja nie dodaje nowych „modułów” — porządkuje i utwardza to, co ju
 - Zamknięcie okna rozmowy gestem „wstecz” **nie kończyło sesji** (mikrofon zostawał włączony) — teraz okno faktycznie zamykane kończy sesję i sprząta po sobie.
 - Kula animuje się na klatkach ekranu (płynniej na 120 Hz, mniej pracy w spoczynku), a powrót do aplikacji odświeża dane z Supabase **najwyżej raz na 15 s** (wcześniej każde wejście na zakładkę to były 3 zapytania).
 
+**Czwarta runda (wake-word w stylu hotwordu Google):**
+
+- **„Hej Nixi" działało dopiero po chwili od włączenia nasłuchu**: kwarantanna po trafieniu (12 s) startowała od zera czasu audio, więc po starcie usługi każda ocena kończyła się na „jeszcze w kwarantannie" — na telefonie wyglądało to jak „muszę chwilę poczekać, zanim zadziała", a po każdym restarcie nasłuchu (np. przez piesek) znowu było 12 s ciszy. Znalazł to test kaskady, a symulacja 1:1 potwierdziła objaw.
+- **Detektor od nowa (kaskada)**: zamiast jednego Goertzla z DTW — bufor 2 s PCM, bramka mowy (w ciszy zero FFT), frontend log-mel 25 ms, tani pierwszy stopień na 8 pasmach, dokładny drugi stopień na 16 pasmach i 3 nagraniach, filtr podpisu mówcy i lista negatywów uczona z niepotwierdzonych kandydatów. Szczegóły niżej.
+- **Pre-roll z bufora**: pierwsza sylaba frazy nie wypada, bo klatki sprzed otwarcia bramki liczymy z bufora 2 s (wcześniej początek wypowiedzi mógł zostać obcięty).
+- **Uczciwa statystyka**: „ms CPU / min nasłuchu" w Ustawieniach było zawsze zerem, bo nikt tej liczby nie liczył. Teraz jest mierzona, a detektor loguje raz na minutę pełne statystyki (`wake.stats`) — łącznie z tym, ile klatek już zebrał i jakie ma progi, żeby dało się odróżnić zły próg od zbyt krótkiej historii.
+- **Nowy szablon wymaga jednorazowej rejestracji**: stary format (cechy Goertzla) jest niekompatybilny — aplikacja wykrywa to i pokazuje prośbę o nagranie „Hej Nixi" od nowa, zamiast udawać, że nasłuchuje.
+
 **Trzecia runda (echo, szybkość startu, trwałość, tło):**
 
 - **Koniec „rozmowy z samą sobą"**: mikrofon zbierał głos NIXI z głośnika i wysyłał go do modelu (fałszywe przerwania, zaśmiecone transkrypcje). Teraz działa **bramka półduplex** (gdy NIXI mówi, nie nadajemy jej własnego głosu) plus **AEC** (`AcousticEchoCanceler`) na sesji mikrofonu. Przerwanie głosem nadal działa — wymaga dwóch głośnych klatek pod rząd (≈128 ms), więc echo i stuknięcia nie ucinają już odpowiedzi.
