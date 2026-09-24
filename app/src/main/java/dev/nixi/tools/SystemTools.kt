@@ -48,37 +48,38 @@ object SystemTools {
         val pm = ctx.packageManager
         val q = query.trim().lowercase()
         if (q.isBlank()) return ToolResult.fail("Podaj nazwę aplikacji.")
-
-        // 1) dokładnie jako pakiet
-        val byPkg = pm.getLaunchIntentForPackage(q)
-        if (byPkg != null) {
-            byPkg.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            ctx.startActivity(byPkg)
-            return ToolResult.ok("Otworzyłam $q.")
-        }
-
-        // 2) wyszukiwanie po nazwie aplikacji (startowe)
-        var best: Pair<Int, String>? = null // (score, label)
-        var bestPkg = ""
-        val apps = pm.getInstalledApplications(PackageManager.GET_META_DATA)
-        for (a in apps) {
-            val label = pm.getApplicationLabel(a).toString().lowercase()
-            if (label.isEmpty()) continue
-            val score = score(label, q)
-            if (score > 0 && (best == null || score > best.first)) {
-                best = score to label
-                bestPkg = a.packageName
+        return try {
+            val byPkg = pm.getLaunchIntentForPackage(q)
+            if (byPkg != null) {
+                byPkg.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                ctx.startActivity(byPkg)
+                return ToolResult.ok("Otworzyłam $q.")
             }
-        }
-        if (bestPkg.isNotEmpty()) {
-            val intent = pm.getLaunchIntentForPackage(bestPkg)
-            if (intent != null) {
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                ctx.startActivity(intent)
-                return ToolResult.ok("Otworzyłam „${best!!.second}”.")
+            var best: Pair<Int, String>? = null
+            var bestPkg = ""
+            val launch = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+            val listed = pm.queryIntentActivities(launch, 0)
+            for (ri in listed) {
+                val label = ri.loadLabel(pm).toString().lowercase()
+                if (label.isEmpty()) continue
+                val score = score(label, q)
+                if (score > 0 && (best == null || score > best.first)) {
+                    best = score to label
+                    bestPkg = ri.activityInfo.packageName
+                }
             }
+            if (bestPkg.isNotEmpty()) {
+                val intent = pm.getLaunchIntentForPackage(bestPkg)
+                if (intent != null) {
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    ctx.startActivity(intent)
+                    return ToolResult.ok("Otworzyłam „${best!!.second}”.")
+                }
+            }
+            ToolResult.fail("Nie znalazłam aplikacji „$query”.")
+        } catch (t: Throwable) {
+            ToolResult.fail("Nie mogę otworzyć aplikacji: ${t.message}")
         }
-        return ToolResult.fail("Nie znalazłam aplikacji „$query”.")
     }
 
     private fun score(label: String, q: String): Int {

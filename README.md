@@ -338,6 +338,10 @@ i tak działa niezależnie od wywołania długim przytrzymaniem).
 
 ## Historia zmian (skrót)
 
+- **1.3.6** — sterowanie telefonem jednym narzędziem `phone` (głośność,
+  jasność, latarka, minutnik, mapy, schowek, dialer, SMS, dzwonek,
+  zrzut/blokada ekranu, lista aplikacji) + twardsze otwieranie aplikacji
+  i kalendarz bez crasha na złym zakresie.
 - **1.3.5** — mniej pytań i fałszywych „błędów”: NIXI nie pyta głosem
   o zgodę, okno potwierdzenia tylko przy usuwaniu (pierwsze „Tak” starcza
   na resztę rozmowy), tryb ręczny nie odpala nagrania ekranu przy zwykłych

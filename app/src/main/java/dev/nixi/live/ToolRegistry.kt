@@ -11,6 +11,7 @@ import dev.nixi.tools.SpotifyApi
 import dev.nixi.tools.SpotifyTools
 import dev.nixi.tools.SupabaseTools
 import dev.nixi.tools.SystemTools
+import dev.nixi.tools.PhoneTools
 import dev.nixi.tools.ReminderTools
 import dev.nixi.tools.ToolResult
 import org.json.JSONArray
@@ -46,6 +47,16 @@ object ToolRegistry {
         add("media_pause", "Zatrzymaj odtwarzanie muzyki/multimediów na telefonie.", emptyMap(), emptyList())
         add("media_resume", "Wznów odtwarzanie muzyki/multimediów.", emptyMap(), emptyList())
         add("open_app", "Otwórz aplikację telefonu po nazwie.", mapOf("app" to s("nazwa aplikacji")), listOf("app"))
+        add(
+            "phone",
+            "Sterowanie telefonem. Akcje: status, volume, brightness, torch, timer, web, maps, clipboard, dial, sms, share, ringer, screenshot, lock, apps, settings, vibrate. Zwykłe zadania (głośność, latarka, minutnik, wyszukiwanie) rób TYM narzędziem, nie trybem ręcznym.",
+            mapOf(
+                "action" to s("status|volume|brightness|torch|timer|web|maps|clipboard|dial|sms|share|ringer|screenshot|lock|apps|settings|vibrate"),
+                "value" to s("np. 50, mute, 5 min, numer, zapytanie, on/off"),
+                "extra" to s("opcjonalnie: strumień (music/ring), treść SMS, etykieta minutnika"),
+            ),
+            listOf("action"),
+        )
         add("user_profile", "Pokaż profil użytkownika (tabela users).", emptyMap(), emptyList())
         add("user_profile_update", "Zaktualizuj profil użytkownika (np. notes, display_name).",
             mapOf("fields" to obj("pola do zmiany")), listOf("fields"))
@@ -154,6 +165,11 @@ object ToolRegistry {
             "media_pause" -> SystemTools.mediaPause()
             "media_resume" -> SystemTools.mediaResume()
             "open_app" -> SystemTools.openApp(args.optString("app", ""))
+            "phone" -> PhoneTools.run(
+                args.optString("action", "status"),
+                args.optString("value", ""),
+                args.optString("extra", ""),
+            )
             "user_profile" -> SystemTools.userProfile()
             "user_profile_update" -> SystemTools.updateProfile(args.optJSONObject("fields") ?: JSONObject())
 

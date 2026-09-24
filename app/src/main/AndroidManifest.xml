@@ -36,6 +36,14 @@
     <!-- Wznawianie nasłuchu po restarcie telefonu -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- Sterowanie telefonem: głośność, wibracja, jasność (osobna zgoda WRITE_SETTINGS) -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.WRITE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-feature android:name="android.hardware.camera.flash" android:required="false" />
+
     <application
         android:name=".NixiApp"
         android:allowBackup="true"

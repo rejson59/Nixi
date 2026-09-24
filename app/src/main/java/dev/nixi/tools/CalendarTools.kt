@@ -32,8 +32,9 @@ object CalendarTools {
                 )
                 run {
                     val f2 = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
-                    val endMillis = f2.parse(parsed)!!.time + 86_400_000L
-                    parsed to f2.format(java.util.Date(endMillis))
+                    val startMs = runCatching { f2.parse(parsed)?.time }.getOrNull()
+                        ?: return ToolResult.fail("Nie rozumiem zakresu „$range”.")
+                    parsed to f2.format(java.util.Date(startMs + 86_400_000L))
                 }
             }
         }
