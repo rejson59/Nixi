@@ -156,6 +156,18 @@ class WakeWordService : Service() {
         NixiState.wakeActive.value = true
         running = true
         startForegroundCompat()
+        // nasłuch żyje => piesek pilnuje, żeby tak zostało
+        runCatching { dev.nixi.boot.WakeWatchdog.arm(this) }
+    }
+
+    /**
+     * Użytkownik zrzucił aplikację z listy ostatnich. Na HyperOS kończy się to
+     * często ubiciem procesu — alarm za minutę spróbuje podnieść nasłuch.
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        LogBus.log("wake.task", "aplikacja zrzucona z listy — planuję powrót nasłuchu", "warn")
+        runCatching { dev.nixi.boot.WakeWatchdog.arm(this, dev.nixi.boot.WakeWatchdog.RETRY_MS) }
+        super.onTaskRemoved(rootIntent)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

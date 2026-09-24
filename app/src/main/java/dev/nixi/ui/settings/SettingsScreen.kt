@@ -199,6 +199,8 @@ fun SettingsScreen() {
                 wakeOn = it
                 LocalStore.wakeEnabled = it
                 if (it) WakeWordService.start(context) else WakeWordService.stop(context)
+                // piesek: uzbrój albo odwołaj alarm (arm sam decyduje)
+                dev.nixi.boot.WakeWatchdog.arm(context)
             }
         }
         item {

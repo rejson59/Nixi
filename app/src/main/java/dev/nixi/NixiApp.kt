@@ -43,6 +43,17 @@ class NixiApp : Application() {
 
         ActionNotifier.ensureChannels()
 
+        // Piesek nasłuchu (co 15 min) — HyperOS potrafi ubić usługę, gdy
+        // aplikacja jest zamknięta, a wtedy nikt by jej nie podniósł.
+        runCatching { dev.nixi.boot.WakeWatchdog.arm(this) }
+            .onFailure { dev.nixi.util.LogBus.log("watchdog", it.message ?: "?", "warn") }
+
+        // Zaległe zapisy z kolejki offline (pamięć/logi z czasu bez sieci).
+        scope.launch {
+            runCatching { dev.nixi.db.OfflineQueue.flush(this@NixiApp) }
+                .onFailure { dev.nixi.util.LogBus.log("queue.flush", it.message ?: "?", "warn") }
+        }
+
         // Diagnostyka audio na ekranie głównym (np. „mikrofon zajęty przez rozmowę”).
         scope.launch {
             dev.nixi.NixiState.events.collect { e ->

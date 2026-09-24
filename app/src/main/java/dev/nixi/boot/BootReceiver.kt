@@ -39,6 +39,9 @@ class BootReceiver : BroadcastReceiver() {
             }
         }.onFailure { LogBus.log("boot", "nasłuch: ${it.message}", "warn") }
 
+        // alarmy systemowe też nie przeżywają restartu — uzbrój pieska od nowa
+        runCatching { WakeWatchdog.arm(app) }
+
         // AlarmManager nie przeżywa restartu — odtwórz przypomnienia z Supabase.
         val pending = goAsync()
         scope.launch {

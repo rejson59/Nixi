@@ -47,10 +47,25 @@ object LogBus {
         // fire-and-forget: logi NIGDY nie mogą zablokować krytycznej ścieżki
         // (ani wywalić aplikacji, gdy LocalStore nie jest jeszcze gotowy)
         val configured = runCatching { SupabaseHub.isConfigured() }.getOrDefault(false)
-        if (configured) {
-            scope.launch {
-                runCatching { SupabaseHub.insertLog(entry) }
-                    .onFailure { /* cisza — logi tła nie mogą logować logów */ }
+        if (!configured) return
+        scope.launch {
+            // Zapis logu może się nie udać (brak sieci) — wtedy ląduje w
+            // trwałej kolejce, żeby diagnostyka nie zniknęła po restarcie.
+            val ok = runCatching { SupabaseHub.insertLog(entry) }.getOrDefault(false)
+            if (!ok && !dev.nixi.db.OfflineQueue.isFlushing) {
+                val payload = org.json.JSONObject()
+                    .put("table", entry.table)
+                    .put(
+                        "row",
+                        org.json.JSONObject()
+                            .put("ts", entry.ts)
+                            .put("action", entry.action)
+                            .put("detail", entry.detail)
+                            .put("status", entry.status)
+                    )
+                runCatching {
+                    dev.nixi.db.OfflineQueue.enqueue(dev.nixi.NixiApp.ctx(), dev.nixi.db.OfflineQueue.TYPE_LOG, payload)
+                }
             }
         }
     }

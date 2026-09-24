@@ -688,6 +688,8 @@ class LiveSessionService : Service() {
                 )
                 NixiState.emit(NixiState.NixiEvent.SessionEnded(reason, duration))
                 publishTpm()
+                // sesja = sieć działa; przy okazji nadgonić zaległe zapisy
+                runCatching { dev.nixi.db.OfflineQueue.flush(this@LiveSessionService) }
                 // 6) pamięć długotrwała: podsumowanie + fakty (tylko przy realnej rozmowie)
                 val turns = transcripts.count { it.first == "user" }
                 if (turns >= 2 && LocalStore.geminiKey.isNotBlank()) {

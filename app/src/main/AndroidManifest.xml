@@ -130,6 +130,15 @@
             </intent-filter>
         </activity>
 
+        <!-- piesek: sprawdza, czy nasłuch „Hej Nixi” nadal żyje (HyperOS) -->
+        <receiver
+            android:name=".boot.WatchdogReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="dev.nixi.WATCHDOG" />
+            </intent-filter>
+        </receiver>
+
         <!-- przypomnienia: dokładne alarmy -->
         <receiver
             android:name=".notif.ReminderReceiver"
