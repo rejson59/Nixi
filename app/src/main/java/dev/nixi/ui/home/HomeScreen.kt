@@ -38,7 +38,7 @@ import dev.nixi.ui.components.ScreenHeader
 import dev.nixi.ui.components.SectionCard
 import dev.nixi.ui.components.StatusPill
 import dev.nixi.ui.components.rememberOnResumeTick
-import NixiOk
+import dev.nixi.ui.theme.NixiOk
 import dev.nixi.ui.theme.NixiText
 import dev.nixi.ui.theme.NixiTextDim
 import dev.nixi.ui.theme.NixiWarn
