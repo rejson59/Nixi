@@ -53,6 +53,17 @@ android {
     }
 }
 
+// Logowanie testów: bez tego komunikat nieudanej asercji (np. statystyki
+// detektora) nie trafia do logu CI i nie da się zdiagnozować, co zawiodło.
+// Przydało się przy strojeniu wake-worda — zostawiamy na stałe.
+tasks.withType<Test>().configureEach {
+    testLogging {
+        events("failed", "skipped")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showStandardStreams = true
+    }
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

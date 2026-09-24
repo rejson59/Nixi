@@ -55,14 +55,18 @@ class WakeEngine {
         var rejectsNoConfirm: Long = 0,
         var hits: Long = 0,
         var lastStage2Score: Double = 0.0,
-        var lastSpread: Double = 0.0,
+        var threshold1: Double = 0.0,
+        var threshold2: Double = 0.0,
+        var spread: Double = 0.0,
     ) {
         fun summary(): String =
             "ramki=$frames (cisza=$silentFrames, mowa=$speechFrames) " +
                 "kandydaci=$stage1Candidates drugi_stopien=$stage2Runs " +
                 "przeszlo=$stage2Passed odrzucone[glos=$rejectsSpeaker " +
                 "negatywy=$rejectsNegative brak_potwierdzenia=$rejectsNoConfirm] " +
-                "trafienia=$hits ostatni_wynik=%.2f prog=%.2f".format(lastStage2Score, lastSpread)
+                "trafienia=$hits wynik=%.3f prog1=%.3f prog2=%.3f rozrzut=%.3f".format(
+                    lastStage2Score, threshold1, threshold2, spread
+                )
     }
 
     var mode = Mode.STANDARD
@@ -372,7 +376,8 @@ class WakeEngine {
 
         // STAGE 1 — tani, ciągły, wysoka czułość
         val d1 = stage1Distance() ?: return false
-        if (d1 > model.stage1Threshold(sensitivity)) {
+        stats.threshold1 = model.stage1Threshold(sensitivity)
+        if (d1 > stats.threshold1) {
             votes = 0
             return false
         }
@@ -391,8 +396,9 @@ class WakeEngine {
         val check = stage2Verify() ?: return false
         stats.stage2Runs++
         stats.lastStage2Score = check.score
-        stats.lastSpread = model.spreadStage2
+        stats.spread = model.spreadStage2
         val thr2 = model.stage2Threshold(sensitivity)
+        stats.threshold2 = thr2
         if (check.score > thr2) {
             // okno nie pasuje — głosy przepadają, a kandydat, który wcześniej
             // wyglądał dobrze, trafia na listę negatywów
@@ -437,7 +443,7 @@ class WakeEngine {
             s1frames.clear()
             LogBus.log(
                 "wake.hit",
-                "potwierdzone: wynik=%.2f próg=%.2f rozdzielczość=%.3f".format(
+                "potwierdzone: wynik=%.3f próg=%.3f rozrzut=%.3f".format(
                     check.score, thr2, model.spreadStage2
                 )
             )

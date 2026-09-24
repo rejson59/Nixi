@@ -104,7 +104,9 @@ class WakeCascadeTest {
         }
         val sig = WakeEnroll.meanSignature(attempts)
         val sigThr = WakeEnroll.signatureThreshold(attempts)
+        println("rejestracja: klatki=${attempts.map { it.size }} prog_podpisu=%.3f".format(sigThr))
         engine.loadTemplates(attempts, sig, sigThr)
+        println("silnik: szablony=${engine.hasTemplates()}")
     }
 
     @Test
@@ -124,6 +126,7 @@ class WakeCascadeTest {
             if (engine.onPcm(chunk, len)) hit = true
             i += len
         }
+        println("kaskada: ${engine.statsSummary()}")
         assertTrue("nie rozpoznano frazy (stats: ${engine.statsSummary()})", hit)
     }
 
