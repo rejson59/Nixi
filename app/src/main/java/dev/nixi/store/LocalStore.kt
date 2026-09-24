@@ -119,6 +119,15 @@ object LocalStore {
         get() = prefs.getBoolean("onboarded", false)
         set(v) = prefs.edit().putBoolean("onboarded", v).apply()
 
+    /** Cache persona + profilu użytkownika (żeby sesja startowała od razu). */
+    var promptStatic: String
+        get() = prefs.getString("prompt_static", "") ?: ""
+        set(v) = prefs.edit().putString("prompt_static", v).apply()
+
+    var promptStaticAt: Long
+        get() = prefs.getLong("prompt_static_at", 0L)
+        set(v) = prefs.edit().putLong("prompt_static_at", v).apply()
+
     var knownTables: String
         get() = prefs.getString("known_tables", "") ?: ""
         set(v) = prefs.edit().putString("known_tables", v).apply()

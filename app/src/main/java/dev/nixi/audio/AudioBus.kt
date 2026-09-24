@@ -55,6 +55,18 @@ object AudioBus {
 
     @Volatile private var lastError: String? = null
 
+    // ── Usuwanie echa (AEC) ───────────────────────────────────────────────
+    // Bez tego mikrofon zbiera głos NIXI z głośnika i wysyła go z powrotem do
+    // modelu (fałszywe przerwania, „rozmowa z samą sobą”). Włączamy tylko na
+    // czas sesji — nasłuch wake-worda ma zostać surowy.
+    @Volatile private var wantEchoCancel = false
+    @Volatile private var aec: android.media.audiofx.AcousticEchoCanceler? = null
+    @Volatile private var ns: android.media.audiofx.NoiseSuppressor? = null
+
+    /** Czy AEC faktycznie działa na bieżącej sesji AudioRecord. */
+    @Volatile var echoCancelActive = false
+        private set
+
     @SuppressLint("MissingPermission")
     fun start(initial: Consumer? = null): Boolean {
         if (initial != null) consumer = initial
@@ -87,10 +99,62 @@ object AudioBus {
 
     fun isRunning(): Boolean = running.get()
 
+    /**
+     * Włącza usuwanie echa na bieżącym rekordzie (i na każdym kolejnym, jeśli
+     * AudioRecord zostanie odtworzony po błędzie). Zwraca true, jeśli AEC
+     * faktycznie się załączyło — nie każdy telefon/źródło to wspiera.
+     */
+    fun enableEchoCancel(): Boolean {
+        wantEchoCancel = true
+        val r = record ?: return false
+        return applyEffects(r)
+    }
+
+    fun disableEchoCancel() {
+        wantEchoCancel = false
+        releaseEffects()
+    }
+
+    private fun applyEffects(rec: AudioRecord): Boolean = try {
+        releaseEffects()
+        val session = rec.audioSessionId
+        val a = android.media.audiofx.AcousticEchoCanceler.create(session)
+        if (a != null) {
+            a.enabled = true
+            aec = a
+        }
+        val n = android.media.audiofx.NoiseSuppressor.create(session)
+        if (n != null) {
+            n.enabled = true
+            ns = n
+        }
+        val ok = a?.enabled == true
+        echoCancelActive = ok
+        LogBus.log(
+            "audio.aec",
+            if (ok) "usuwanie echa włączone" else "ten telefon nie daje AEC — włączam bramkę półduplex",
+            if (ok) "ok" else "warn"
+        )
+        ok
+    } catch (t: Throwable) {
+        echoCancelActive = false
+        LogBus.log("audio.aec", "AEC nie ruszyło: ${t.message}", "warn")
+        false
+    }
+
+    private fun releaseEffects() {
+        runCatching { aec?.let { it.enabled = false; it.release() } }
+        runCatching { ns?.let { it.enabled = false; it.release() } }
+        aec = null
+        ns = null
+        echoCancelActive = false
+    }
+
     /** Ostatni błąd mikrofonu (null = wszystko działało). */
     fun lastError(): String? = lastError
 
     private fun closeRecord() {
+        releaseEffects()
         val r = record
         record = null
         if (r != null) {
@@ -148,6 +212,8 @@ object AudioBus {
                     continue
                 }
                 record = rec
+                // po odtworzeniu rekordu AEC trzeba założyć od nowa
+                if (wantEchoCancel) applyEffects(rec)
                 val ok = readLoop(rec)
                 closeRecord()
                 if (!running.get()) break

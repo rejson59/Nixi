@@ -56,6 +56,12 @@ class LiveSessionService : Service() {
         /** Ile razy wznawiamy połączenie, zanim zakończymy sesję. */
         private const val MAX_RECONNECTS = 3
 
+        /** Poziom mikrofonu, od którego uznajemy, że użytkownik przerwał NIXI. */
+        private const val BARGE_LEVEL = 0.45f
+
+        /** Ile klatek (64 ms) pod rząd musi być głośno, żeby przerwać. */
+        private const val BARGE_FRAMES = 2
+
         @Volatile var running = false
             private set
 
@@ -177,11 +183,11 @@ class LiveSessionService : Service() {
 
     /** Użytkownik wyraził zgodę na podgląd ekranu (MediaProjection). */
     fun onScreenConsent() {
-        val c = client ?: return
+        if (client == null) return
         val w = resources.displayMetrics.widthPixels
         val h = resources.displayMetrics.heightPixels
         NixiState.orbState.value = NixiState.OrbState.MANUAL
-        c.sendText(
+        sendTextCounted(
             "Użytkownik wyraził zgodę na podgląd ekranu (rozdzielczość ${w}x$h). " +
                 "Tryb ręczny jest gotowy — użyj screen_get, aby zobaczyć ekran, i wykonaj zadanie. " +
                 "Po wykonaniu zadania zakończ tryb przez screen_manual_stop."
@@ -194,7 +200,7 @@ class LiveSessionService : Service() {
     fun onScreenDenied() {
         NixiState.manualMode.value = false
         NixiState.orbState.value = NixiState.OrbState.LISTENING
-        client?.sendText(
+        sendTextCounted(
             "Użytkownik NIE wyraził zgody na podgląd ekranu. Nie próbuj ponownie w tej sesji — " +
                 "powiedz krótko, że tryb ręczny wymaga zgody, i zaproponuj inne rozwiązanie."
         )
@@ -210,7 +216,7 @@ class LiveSessionService : Service() {
             return
         }
         lastUserActivity = System.currentTimeMillis()
-        c.sendText(text)
+        sendTextCounted(text)
     }
 
     private fun beginSession() {
@@ -230,6 +236,10 @@ class LiveSessionService : Service() {
         }
 
         player.start()
+        // Usuwanie echa z głośnika — bez tego mikrofon zbiera głos NIXI
+        // i wysyła go do modelu (fałszywe przerwania). Jeśli telefon nie
+        // wspiera AEC, działa bramka półduplex w streamAudio().
+        AudioBus.enableEchoCancel()
         val c = GeminiLiveClient(key, listener)
         client = c
 
@@ -237,7 +247,7 @@ class LiveSessionService : Service() {
             val manual = NixiState.manualMode.value
             val w = if (manual) resources.displayMetrics.widthPixels else 0
             val h = if (manual) resources.displayMetrics.heightPixels else 0
-            val prompt = withTimeoutOrNull(6000) { SystemPromptBuilder.build(w, h) }
+            val prompt = withTimeoutOrNull(4500) { SystemPromptBuilder.build(w, h) }
                 ?: "Jesteś NIXI, osobistą asystentką. Mów po polsku, zwięźle."
             if (ended.get()) return@launch
             promptText = prompt
@@ -300,6 +310,18 @@ class LiveSessionService : Service() {
         val handle = c.resumptionHandle
         if (handle.isNullOrBlank()) c.connect(buildSetup(promptText))
         else c.reconnect(buildSetup(promptText, handle))
+        // Prompt systemowy też jest rozliczany przez serwer — liczymy go do
+        // budżetu przy każdym połączeniu (wcześniej TPM widział tylko audio).
+        tpm.addUsed(TpmGuard.tokensForText(promptText))
+        publishTpm()
+    }
+
+    /** Wysyłka tekstu z doliczeniem do budżetu TPM. */
+    private fun sendTextCounted(text: String) {
+        val c = client ?: return
+        c.sendText(text)
+        tpm.addUsed(TpmGuard.tokensForText(text))
+        publishTpm()
     }
 
     /**
@@ -328,12 +350,21 @@ class LiveSessionService : Service() {
         }
     }
 
-    /** Strumień mikrofonu do Live API (z TpmGuard i barge-in). */
+    /** Strumień mikrofonu do Live API (z TpmGuard, AEC i barge-inem). */
     private fun streamAudio() {
         val consumer = object : AudioBus.Consumer {
+            /** Licznik głośnych klatek pod rząd — chroni przed echem głośnika. */
+            private var loudFrames = 0
+
             override fun onPcm(pcm: ShortArray, len: Int) {
                 val c = client ?: return
                 if (!c.isOpen()) return
+                // Bramka półduplex: gdy NIXI mówi i nie mamy AEC, mikrofon
+                // zbiera jej własny głos z głośnika. Wysyłanie tego do modelu
+                // kończyło się „rozmową z samą sobą” i fałszywymi przerwaniami.
+                // Barge-in nadal działa — poziom leci osobnym callbackiem,
+                // a przerwanie czyści kolejkę odtwarzacza (patrz onLevel).
+                if (!AudioBus.echoCancelActive && player.isPlaying()) return
                 val sec = len / 16000.0
                 val tokens = TpmGuard.tokensForAudioSeconds(sec)
                 if (!tpm.canSend(tokens)) {
@@ -365,13 +396,18 @@ class LiveSessionService : Service() {
             override fun onLevel(level: Float) {
                 // UWAGA: poziom leci ~15x/s, więc NIE może odświeżać licznika
                 // bezczynności — inaczej sesja nigdy się nie kończy.
-                if (level > 0.3f) {
-                    lastUserActivity = System.currentTimeMillis()
-                    // barge-in: przerwij głos NIXI, gdy zacząłem mówić
-                    if (NixiState.orbState.value == NixiState.OrbState.SPEAKING) {
-                        player.flush()
-                        NixiState.orbState.value = NixiState.OrbState.LISTENING
-                    }
+                if (level > 0.3f) lastUserActivity = System.currentTimeMillis()
+                // barge-in: przerwij głos NIXI, gdy zacząłem mówić.
+                // Wymagamy kilku głośnych klatek pod rząd, żeby własne echo
+                // z głośnika (albo stuknięcie) nie ucinało odpowiedzi.
+                loudFrames = if (level > BARGE_LEVEL) loudFrames + 1 else 0
+                val speaking = NixiState.orbState.value == NixiState.OrbState.SPEAKING ||
+                    player.isPlaying()
+                if (speaking && loudFrames >= BARGE_FRAMES) {
+                    loudFrames = 0
+                    player.flush()
+                    NixiState.orbState.value = NixiState.OrbState.LISTENING
+                    LogBus.log("live.bargein", "przerwano odpowiedź (poziom %.2f)".format(level))
                 }
             }
         }
@@ -577,6 +613,8 @@ class LiveSessionService : Service() {
             }
         }
         client?.sendToolResponse(responses)
+        // odpowiedzi narzędzi też są tokenami po stronie modelu
+        tpm.addUsed(TpmGuard.tokensForText(responses.toString()))
         publishTpm()
     }
 
@@ -627,6 +665,7 @@ class LiveSessionService : Service() {
                 NixiState.manualMode.value = false
                 NixiState.orbState.value = NixiState.OrbState.IDLE
                 // 2) dźwięk i sieć
+                runCatching { AudioBus.disableEchoCancel() }
                 runCatching { player.stop() }
                 client?.close()
                 client?.shutdown()

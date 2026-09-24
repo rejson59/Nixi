@@ -27,6 +27,9 @@ class AudioPlayer {
 
     @Volatile private var worker: Thread? = null
 
+    /** Kiedy ostatnio poszły realne bajty do AudioTrack (bramka półduplex). */
+    @Volatile private var lastWriteAt = 0L
+
     fun start() {
         if (alive) return
         alive = true
@@ -90,6 +93,7 @@ class AudioPlayer {
         runCatching { track?.pause() }
         runCatching { track?.flush() }
         runCatching { track?.play() }
+        lastWriteAt = 0L
         NixiState.speakLevel.value = 0f
     }
 
@@ -103,11 +107,19 @@ class AudioPlayer {
         runCatching { t?.release() }
         worker = null
         queue.clear()
+        lastWriteAt = 0L
         NixiState.speakLevel.value = 0f
         LogBus.log("audio.player", "stop")
     }
 
     fun isRunning(): Boolean = alive
+
+    /**
+     * Czy NIXI właśnie mówi. `queue` łapie dźwięk jeszcze nieodtworzony,
+     * `lastWriteAt` — ogon po ostatnim zapisie (bufor AudioTrack).
+     */
+    fun isPlaying(): Boolean =
+        alive && (queue.isNotEmpty() || System.currentTimeMillis() - lastWriteAt < 250)
 
     private fun loop(t: AudioTrack) {
         try {
@@ -126,7 +138,10 @@ class AudioPlayer {
                     } catch (_: Throwable) {
                         return
                     }
-                    if (written > 0) off += written else break
+                    if (written > 0) {
+                        off += written
+                        lastWriteAt = System.currentTimeMillis()
+                    } else break
                 }
                 NixiState.speakLevel.value = rmsLevel(bytes)
             }
