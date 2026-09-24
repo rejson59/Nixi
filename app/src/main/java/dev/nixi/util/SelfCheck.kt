@@ -72,6 +72,7 @@ object SelfCheck {
             items.add(checkSupabase())
             items.add(checkAccessibility(context))
             items.add(checkNotifications(context))
+            items.add(checkLastSession())
         } catch (t: Throwable) {
             items.add(Item("Samokontrola", Level.ERR, t.message ?: "nieznany błąd"))
         } finally {
@@ -496,6 +497,45 @@ object SelfCheck {
                 "Usługa dostępności", Level.WARN, "wyłączona (potrzebna tylko do trybu ręcznego)",
                 "Ustawienia systemowe → Dostępność → NIXI."
             )
+        }
+    }
+
+    /**
+     * Co się stało w ostatniej rozmowie — zapisane fakty zamiast domysłów:
+     * czy serwer potwierdził sesję, ile klatek audio poszło do modelu
+     * i ile razy model odpowiedział dźwiękiem.
+     */
+    private fun checkLastSession(): Item {
+        val label = "Ostatnia rozmowa"
+        val reason = LocalStore.lastSessionReason
+        if (reason.isBlank()) {
+            return Item(
+                label, Level.WARN, "brak zapisanej rozmowy",
+                "Dotknij kuli (albo powiedz „Hej Nixi”) i sprawdź ten punkt ponownie — " +
+                    "tu zobaczysz, co się stało."
+            )
+        }
+        val sec = LocalStore.lastSessionDuration
+        val chunks = LocalStore.lastSessionAudioChunks
+        val replies = LocalStore.lastSessionAudioReplies
+        val setupOk = LocalStore.lastSessionSetupOk
+        val variant = LocalStore.lastSessionVariant
+        val facts = "czas ${sec}s • klatki audio: $chunks • odpowiedzi modelu: $replies"
+        return when {
+            !setupOk -> Item(
+                label, Level.ERR, "sesja nie została potwierdzona (wariant $variant, $facts)",
+                "Powód: $reason. To jest przyczyna ciszy — zobacz punkt „Rozmowa z Gemini”."
+            )
+            chunks == 0 && sec >= 5 -> Item(
+                label, Level.ERR, "sesja działała, ale mikrofon nie wysłał dźwięku ($facts)",
+                "Mikrofon był zajęty albo nic nie słyszał. Sprawdź punkt „Mikrofon” " +
+                    "i zakończ rozmowy telefoniczne/muzykę trzymające mikrofon."
+            )
+            replies == 0 -> Item(
+                label, Level.WARN, "wysłano audio, ale model nie odpowiedział ($facts)",
+                "Powód zakończenia: $reason. Spróbuj jeszcze raz i sprawdź punkt „Rozmowa z Gemini”."
+            )
+            else -> Item(label, Level.OK, "rozmowa działała ($facts)")
         }
     }
 

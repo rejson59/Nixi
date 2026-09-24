@@ -170,6 +170,21 @@ fun HomeScreen() {
                     Text(sessionError, color = NixiWarn, fontSize = 12.sp)
                     Spacer(Modifier.height(10.dp))
                 }
+                // Co się stało w ostatniej rozmowie — suche fakty, żeby
+                // „nie odpowiada” miało od razu jakiś konkret.
+                val lastReason = remember(tick) { LocalStore.lastSessionReason }
+                if (lastReason.isNotBlank() && !inSession) {
+                    Text(
+                        "Ostatnia rozmowa: " + lastReason +
+                            " • ${LocalStore.lastSessionDuration}s" +
+                            " • klatki audio: ${LocalStore.lastSessionAudioChunks}" +
+                            " • odpowiedzi: ${LocalStore.lastSessionAudioReplies}" +
+                            " • wariant ${LocalStore.lastSessionVariant}" +
+                            (if (LocalStore.lastSessionSetupOk) "" else " (sesja niepotwierdzona)"),
+                        color = NixiTextDim, fontSize = 11.sp, maxLines = 3,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                }
                 PillButton(
                     text = if (checkRunning) "Sprawdzam…" else "Sprawdź NIXI",
                     modifier = Modifier.fillMaxWidth(),

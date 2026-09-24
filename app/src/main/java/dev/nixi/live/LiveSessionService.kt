@@ -154,6 +154,9 @@ class LiveSessionService : Service() {
     /** True po `setupComplete` — czyli sesja naprawdę rozmawia z modelem. */
     @Volatile private var setupDone = false
 
+    /** Ile razy model przysłał dźwięk (dowód, że rozmowa realnie działa). */
+    @Volatile private var audioReplies = 0
+
     override fun onCreate() {
         super.onCreate()
         ToolContext.app = NixiApp.app
@@ -248,6 +251,7 @@ class LiveSessionService : Service() {
         setupDone = false
         setupTries = 0
         setupVariant = -1
+        audioReplies = 0
         NixiState.lastSessionError.value = ""
 
         player.start()
@@ -584,6 +588,7 @@ class LiveSessionService : Service() {
         }
 
         override fun onAudio(pcm: ByteArray) {
+            audioReplies++
             player.write(pcm)
             // wyjście modelu też wlicza się do limitu TPM
             tpm.addUsed(TpmGuard.tokensForOutputSeconds(pcm.size / 2 / 24000.0))
@@ -788,6 +793,13 @@ class LiveSessionService : Service() {
             runCatching {
                 val duration = (System.currentTimeMillis() - sessionStart) / 1000
                 LocalStore.lastSessionDuration = duration
+                // Diagnostyka „NIXI nie odpowiada”: dlaczego się skończyło,
+                // ile klatek audio poszło i czy model w ogóle się odezwał.
+                LocalStore.lastSessionReason = reason
+                LocalStore.lastSessionAudioChunks = client?.sentAudioChunks ?: 0
+                LocalStore.lastSessionAudioReplies = audioReplies
+                LocalStore.lastSessionVariant = setupVariant
+                LocalStore.lastSessionSetupOk = setupDone
                 idleJob?.cancel()
                 tpmJob?.cancel()
                 // 1) domknij wszystko, co czeka na użytkownika

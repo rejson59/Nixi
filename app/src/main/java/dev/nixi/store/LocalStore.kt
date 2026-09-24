@@ -179,6 +179,35 @@ object LocalStore {
         get() = prefs.getLong("last_session_dur", 0L)
         set(v) = prefs.edit().putLong("last_session_dur", v).apply()
 
+    // ── Diagnostyka ostatniej sesji („NIXI nie odpowiada”) ─────────────────
+    // Zapisujemy suche fakty, żeby dało się je pokazać w aplikacji (karta
+    // „Rozmowa z Gemini”) i w samokontroli — bez zgadywania, co się stało.
+
+    /** Dlaczego zakończyła się ostatnia rozmowa (np. „bezczynność (5 min)”). */
+    var lastSessionReason: String
+        get() = prefs.getString("last_session_reason", "") ?: ""
+        set(v) = prefs.edit().putString("last_session_reason", v).apply()
+
+    /** Ile klatek audio NIXI wysłała do modelu w ostatniej sesji. */
+    var lastSessionAudioChunks: Int
+        get() = prefs.getInt("last_session_chunks", 0)
+        set(v) = prefs.edit().putInt("last_session_chunks", v).apply()
+
+    /** Ile razy model odpowiedział dźwiękiem w ostatniej sesji. */
+    var lastSessionAudioReplies: Int
+        get() = prefs.getInt("last_session_replies", 0)
+        set(v) = prefs.edit().putInt("last_session_replies", v).apply()
+
+    /** Który wariant konfiguracji sesji zadziałał (0/1/2, -1 = żaden). */
+    var lastSessionVariant: Int
+        get() = prefs.getInt("last_session_variant", -1)
+        set(v) = prefs.edit().putInt("last_session_variant", v).apply()
+
+    /** Czy w ostatniej sesji serwer potwierdził gotowość (setupComplete). */
+    var lastSessionSetupOk: Boolean
+        get() = prefs.getBoolean("last_session_setup_ok", false)
+        set(v) = prefs.edit().putBoolean("last_session_setup_ok", v).apply()
+
     fun clearAllData() {
         prefs.edit().clear().apply()
     }
