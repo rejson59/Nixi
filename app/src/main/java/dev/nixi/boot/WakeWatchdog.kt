@@ -74,6 +74,9 @@ object WakeWatchdog {
         if (!WakeWordService.running && WakeWordService.hasMicPermission(app)) {
             LogBus.log("watchdog", "nasłuch nie działa — wznawiam", "warn")
             WakeWordService.start(app)
+        } else if (WakeWordService.running) {
+            // przy okazji: przy słabej baterii zejdź w tryb ECO (oszczędność)
+            runCatching { WakeWordService.ensureEngineConfigured() }
         }
         // przy okazji: dociągnij to, co nie doszło do Supabase
         NixiApp.scope.launch {

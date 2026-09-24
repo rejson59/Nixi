@@ -15,6 +15,7 @@ import dev.nixi.notif.ActionNotifier
 import dev.nixi.overlay.ConversationActivity
 import dev.nixi.store.LocalStore
 import dev.nixi.ui.MainActivity
+import android.os.BatteryManager
 import dev.nixi.util.LogBus
 import kotlinx.coroutines.launch
 
@@ -81,8 +82,31 @@ class WakeWordService : Service() {
             }
         }
 
+        /** Czy ostatnio wymusiliśmy ECO z powodu baterii (żeby nie spamować logów). */
+        @Volatile private var autoEco = false
+
+        /**
+         * Poniżej 20% baterii (i bez ładowania) nasłuch przechodzi w tryb ECO:
+         * mniej ciepła i zużycia, a „Hej Nixi" nadal działa.
+         */
+        private fun lowBattery(): Boolean = try {
+            val ctx = NixiApp.ctx()
+            val bm = ctx.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+            val level = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+            level in 1..20 && !bm.isCharging
+        } catch (_: Throwable) {
+            false
+        }
+
         fun ensureEngineConfigured() {
-            val mode = if (LocalStore.ecoMode) WakeEngine.Mode.ECO else WakeEngine.Mode.STANDARD
+            val eco = LocalStore.ecoMode || lowBattery()
+            val mode = if (eco) WakeEngine.Mode.ECO else WakeEngine.Mode.STANDARD
+            val auto = eco && !LocalStore.ecoMode
+            if (auto != autoEco) {
+                autoEco = auto
+                if (auto) LogBus.log("wake.eco", "mało baterii — nasłuch w trybie ECO")
+                else LogBus.log("wake.eco", "wracam do trybu STANDARD")
+            }
             engine.configure(mode, LocalStore.wakeSensitivity)
             if (LocalStore.wakeTemplates.isNotBlank()) {
                 if (!engine.hasTemplates()) engine.loadFromJson(LocalStore.wakeTemplates)

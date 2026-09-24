@@ -62,6 +62,18 @@ class ScreenCaptureService : Service() {
     private val handlerThread = HandlerThread("nixi-screen").apply { start() }
     private val handler = Handler(handlerThread.looper)
 
+    /**
+     * Tryb ręczny musi przeżyć obrót telefonu: rozmiar podglądu brany raz przy
+     * starcie rozjeżdżał się z ekranem (zrzuty przycięte, kliki obok celu).
+     */
+    private val displayListener = object : DisplayManager.DisplayListener {
+        override fun onDisplayAdded(displayId: Int) = Unit
+        override fun onDisplayRemoved(displayId: Int) = Unit
+        override fun onDisplayChanged(displayId: Int) = rebuildDisplay()
+    }
+    private fun displayManager() =
+        getSystemService(DISPLAY_SERVICE) as? DisplayManager
+
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -82,12 +94,28 @@ class ScreenCaptureService : Service() {
         return START_STICKY
     }
 
+    /** Rozmiar i gęstość ekranu w tej chwili (odporne na obrót). */
+    private fun currentMetrics(): Triple<Int, Int, Int> {
+        val dm = android.util.DisplayMetrics()
+        val wm = getSystemService(WINDOW_SERVICE) as? android.view.WindowManager
+        if (android.os.Build.VERSION.SDK_INT >= 30 && wm != null) {
+            val b = wm.currentWindowMetrics.bounds
+            dm.densityDpi = resources.displayMetrics.densityDpi
+            return Triple(b.width(), b.height(), dm.densityDpi)
+        }
+        @Suppress("DEPRECATION")
+        val display = wm?.defaultDisplay
+        @Suppress("DEPRECATION")
+        display?.getRealMetrics(dm)
+        val w = if (dm.widthPixels > 0) dm.widthPixels else resources.displayMetrics.widthPixels
+        val h = if (dm.heightPixels > 0) dm.heightPixels else resources.displayMetrics.heightPixels
+        val dpi = if (dm.densityDpi > 0) dm.densityDpi else resources.displayMetrics.densityDpi
+        return Triple(w, h, dpi)
+    }
+
     private fun initProjection(resultCode: Int, data: Intent) {
         val mpm = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        val dm = resources.displayMetrics
-        val w = dm.widthPixels
-        val h = dm.heightPixels
-        val dpi = dm.densityDpi
+        val (w, h, dpi) = currentMetrics()
 
         val proj = try {
             mpm.getMediaProjection(resultCode, data)
@@ -127,6 +155,39 @@ class ScreenCaptureService : Service() {
             return
         }
         LogBus.log("screen.start", "projekcja aktywna ${w}x$h")
+        // nasłuch obrotu ekranu (tylko gdy mamy projekcję)
+        runCatching { displayManager()?.registerDisplayListener(displayListener, handler) }
+    }
+
+    /**
+     * Ekran zmienił rozmiar (obrót) — odtwarzamy VirtualDisplay i ImageReader,
+     * żeby zrzuty i współrzędne znów zgadzały się z tym, co widzi użytkownik.
+     */
+    private fun rebuildDisplay() {
+        val proj = projection ?: return
+        val (w, h, dpi) = currentMetrics()
+        if (w <= 0 || h <= 0) return
+        if (size.get() == (w to h)) return
+        LogBus.log("screen.rotate", "ekran ${w}x$h — odtwarzam podgląd")
+        runCatching { virtualDisplay?.setSurface(null) }
+        runCatching { virtualDisplay?.release() }
+        virtualDisplay = null
+        runCatching { imageReader?.close() }
+        val reader = android.media.ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2)
+        imageReader = reader
+        size.set(w to h)
+        // narzędzia (screen_tap/swipe) muszą znać nowy rozmiar
+        dev.nixi.tools.ToolContext.screenWidthPx = w
+        dev.nixi.tools.ToolContext.screenHeightPx = h
+        virtualDisplay = runCatching {
+            proj.createVirtualDisplay(
+                "NixiScreen", w, h, dpi,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                reader.surface, null, handler
+            )
+        }.onFailure {
+            LogBus.log("screen.rotate", "nie mogę odtworzyć podglądu: ${it.message}", "warn")
+        }.getOrNull()
     }
 
     fun displaySize(): Pair<Int, Int> = size.get() ?: (0 to 0)
@@ -189,6 +250,7 @@ class ScreenCaptureService : Service() {
     }
 
     override fun onDestroy() {
+        runCatching { displayManager()?.unregisterDisplayListener(displayListener) }
         super.onDestroy()
         // najpierw zwalniamy wątek zadań (ImageReader/VirtualDisplay żyją na handlerze)
         runCatching { handler.removeCallbacksAndMessages(null) }

@@ -6,6 +6,7 @@ import kotlinx.coroutines.launch
 import dev.nixi.accessibility.NixiAccessibilityService
 import dev.nixi.screen.ScreenCaptureService
 import dev.nixi.util.LogBus
+import dev.nixi.util.ScreenCoords
 
 /**
  * TRYB RĘCZNY — NIXI widzi ekran (zrzuty) i steruje nim (tap/swipe/tekst),
@@ -60,16 +61,6 @@ object ScreenTools {
         )
     }
 
-    /**
-     * Model czasem podaje procenty (0..100) zamiast pikseli. Żeby nie było
-     * niejednoznaczności („50" = 50 px czy 50%?), procenty rozpoznajemy tylko
-     * wtedy, gdy OBJE współrzędne mieszczą się w 0..100 i ekran jest duży.
-     */
-    private fun toPx(v: Int, dim: Int, other: Int, otherDim: Int): Int {
-        val percent = v in 0..100 && other in 0..100 && dim > 1000 && otherDim > 1000
-        return if (percent) (v / 100f * dim).toInt().coerceIn(0, dim) else v.coerceIn(0, dim)
-    }
-
     fun tap(x: Int, y: Int): ToolResult {
         val (w, h) = ToolContext.screenWidthPx to ToolContext.screenHeightPx
         if (w <= 0 || h <= 0) {
@@ -79,8 +70,7 @@ object ScreenTools {
             // brak współrzędnych w wywołaniu nie może kończyć się kliknięciem (0,0)
             return ToolResult.fail("Brak współrzędnych — podaj x i y.")
         }
-        val xPx = toPx(x, w, y, h)
-        val yPx = toPx(y, h, x, w)
+        val (xPx, yPx) = ScreenCoords.pair(x, y, w, h)
         val ok = NixiAccessibilityService.instance?.tap(xPx.toFloat(), yPx.toFloat()) ?: false
         if (!ok) {
             return ToolResult.fail(
@@ -99,10 +89,8 @@ object ScreenTools {
         }
         val (w, h) = ToolContext.screenWidthPx to ToolContext.screenHeightPx
         // te same zasady co w screen_tap: małe liczby = procenty
-        val ax = if (w > 0) toPx(x1, w, y1, h) else x1
-        val ay = if (h > 0) toPx(y1, h, x1, w) else y1
-        val bx = if (w > 0) toPx(x2, w, y2, h) else x2
-        val by = if (h > 0) toPx(y2, h, x2, w) else y2
+        val (ax, ay) = ScreenCoords.pair(x1, y1, w, h)
+        val (bx, by) = ScreenCoords.pair(x2, y2, w, h)
         val ok = svc.swipe(ax.toFloat(), ay.toFloat(), bx.toFloat(), by.toFloat(),
             durationMs.toLong().coerceIn(80, 1500))
         LogBus.log("screen.swipe", "$ax,$ay -> $bx,$by")

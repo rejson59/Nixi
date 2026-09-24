@@ -78,6 +78,35 @@ class TimeUtilsTest {
     }
 
     @Test
+    fun `granice dnia stykaja sie o polnocy`() {
+        // Okno „dziś" kończy się dokładnie tam, gdzie zaczyna się „jutro":
+        // dzięki temu kalendarz na dziś nie gubi wydarzeń o 00:00 ani nie
+        // dubluje ich w obu oknach (regres: rozjazd o sekundę).
+        val (_, todayEnd) = TimeUtils.todayWindow()
+        val (tomorrowStart, _) = TimeUtils.windowFor(1)
+        assertEquals("00:00:00", todayEnd.substringAfter('T'))
+        assertEquals("00:00:00", tomorrowStart.substringAfter('T'))
+        assertEquals(todayEnd, tomorrowStart)
+        assertEquals(
+            TimeUtils.parseIso(todayEnd)!!.time,
+            TimeUtils.parseIso(tomorrowStart)!!.time
+        )
+    }
+
+    @Test
+    fun `wczorajsze okno konczy sie na poczatku dzisiejszego`() {
+        val (_, yesterdayEnd) = TimeUtils.windowFor(-1)
+        val (todayStart, _) = TimeUtils.todayWindow()
+        assertEquals(todayStart, yesterdayEnd)
+    }
+
+    @Test
+    fun `polnoc i ostatnia minuta dnia parsuja sie poprawnie`() {
+        assertTrue(TimeUtils.parseFlexible("00:00")!!.endsWith("T00:00:00"))
+        assertTrue(TimeUtils.parseFlexible("23:59")!!.endsWith("T23:59:00"))
+    }
+
+    @Test
     fun `dzien tygodnia w numeracji postgresa`() {
         val d = TimeUtils.dayOfWeekPostgres()
         assertTrue("dzień=$d", d in 1..7)
