@@ -239,21 +239,6 @@ object DbSchema {
      * nie byłoby czym tego wykonać), a jej odtwarzanie w trakcie wywołania
      * tylko mieszałoby w skrypcie.
      */
-    val RPC_SQL: String =
-        (structureStatements + seedStatements).joinToString(";\n") + ";"
-
-    /** Pełny SQL do wklejenia w SQL Editorze Supabase. */
-    val SQL: String = buildString {
-        append("-- ═══ NIXI: tabele (bezpieczne do wielokrotnego uruchomienia) ═══\n")
-        append("-- Ten sam kod zakłada brakujące tabele i DOKŁADA brakujące kolumny,")
-        append(" więc uruchom go ponownie po każdej aktualizacji aplikacji.\n\n")
-        append(structureStatements.joinToString(";\n"))
-        append(";\n\n-- ── Startowe dane (nie nadpisują Twoich) ──\n")
-        append(seedStatements.joinToString(";\n"))
-        append(";\n\n")
-        append(execFunctionSql)
-        append("\n-- ═══ Gotowe — wróć do aplikacji i naciśnij „Sprawdź ponownie” ═══\n")
-    }
 
     /**
      * Funkcja, dzięki której aplikacja wykonuje powyższy SQL samodzielnie
@@ -320,4 +305,21 @@ end ${'$'}body${'$'};
 revoke all on function public.nixi_exec_sql(text) from public;
 grant execute on function public.nixi_exec_sql(text) to anon, authenticated;
 """.trimIndent()
+
+    val RPC_SQL: String =
+        (structureStatements + seedStatements).joinToString(";\n") + ";"
+
+    /** Pełny SQL do wklejenia w SQL Editorze Supabase. */
+    val SQL: String = buildString {
+        append("-- ═══ NIXI: tabele (bezpieczne do wielokrotnego uruchomienia) ═══\n")
+        append("-- Ten sam kod zakłada brakujące tabele i DOKŁADA brakujące kolumny,")
+        append(" więc uruchom go ponownie po każdej aktualizacji aplikacji.\n\n")
+        append(structureStatements.joinToString(";\n"))
+        append(";\n\n-- ── Startowe dane (nie nadpisują Twoich) ──\n")
+        append(seedStatements.joinToString(";\n"))
+        append(";\n\n")
+        append(execFunctionSql)
+        append("\n-- ═══ Gotowe — wróć do aplikacji i naciśnij „Sprawdź ponownie” ═══\n")
+    }
+
 }
