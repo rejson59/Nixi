@@ -639,6 +639,19 @@ fun SettingsScreen() {
                     accent = NixiOk,
                 ) {
                     PermRow(
+                        "Pigułka nad innymi aplikacjami (klikanie pod NIXI)",
+                        android.os.Build.VERSION.SDK_INT < 23 ||
+                            android.provider.Settings.canDrawOverlays(context),
+                        openSettings = {
+                            context.startActivity(
+                                Intent(
+                                    android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                    android.net.Uri.parse("package:" + context.packageName)
+                                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                        },
+                    )
+                    PermRow(
                         "Dostęp do powiadomień (odczyt + ciche reguły + pauza muzyki)",
                         listenerOn,
                         openSettings = {

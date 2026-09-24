@@ -12,7 +12,6 @@ import dev.nixi.NixiState
 import dev.nixi.audio.AudioBus
 import dev.nixi.live.LiveSessionService
 import dev.nixi.notif.ActionNotifier
-import dev.nixi.overlay.ConversationActivity
 import dev.nixi.store.LocalStore
 import dev.nixi.ui.MainActivity
 import android.os.BatteryManager
@@ -200,12 +199,14 @@ class WakeWordService : Service() {
             runCatching { dev.nixi.audio.MediaPauseController.pauseAll() }
             dev.nixi.NixiState.emit(dev.nixi.NixiState.NixiEvent.SessionStarted("wake"))
             // 2) okno z kulą — nad wszystkim, także nad blokadką
-            val intent = Intent(this@WakeWordService, ConversationActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            runCatching { startActivity(intent) }
-            // Android 10+ blokuje startActivity z tła; fullScreenIntent na powiadomieniu
-            // to legalna ścieżka (a bez FSI zostaje heads-up).
-            ActionNotifier.wakeFullscreen(this@WakeWordService)
+            runCatching { dev.nixi.overlay.ConversationHost.show(this@WakeWordService) }
+            val locked = (getSystemService(KEYGUARD_SERVICE) as? android.app.KeyguardManager)
+                ?.isKeyguardLocked == true
+            // Overlay nie potrzebuje aktywności. FSI tylko nad blokadką albo gdy
+            // system nie pozwala rysować nad innymi aplikacjami.
+            if (locked || !dev.nixi.overlay.ConversationHud.canShow(this@WakeWordService)) {
+                ActionNotifier.wakeFullscreen(this@WakeWordService)
+            }
             // 3) sesja głosowa (WebSocket Gemini Live)
             LiveSessionService.start(this@WakeWordService, "wake")
         }

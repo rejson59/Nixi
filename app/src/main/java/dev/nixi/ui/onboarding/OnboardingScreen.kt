@@ -334,6 +334,27 @@ private fun StepPermissions(onNext: () -> Unit) {
             refresh++
         },
     )
+    val overlayOn = remember(resumeTick, refresh) {
+        android.os.Build.VERSION.SDK_INT < 23 ||
+            android.provider.Settings.canDrawOverlays(context)
+    }
+    PermRow(
+        title = "Pigułka nad innymi aplikacjami",
+        desc = "Żeby dało się klikać w Instagram / Chrome, gdy NIXI słucha",
+        granted = overlayOn,
+        actionLabel = "Udziel",
+        onAction = {
+            runCatching {
+                context.startActivity(
+                    Intent(
+                        android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        android.net.Uri.parse("package:" + context.packageName)
+                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            }
+            refresh++
+        },
+    )
     PermRow(
         title = "Usługa dostępności (dostępna)",
         desc = "Klikanie i scrollowanie w trybie ręcznym",

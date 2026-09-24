@@ -338,6 +338,8 @@ i tak działa niezależnie od wywołania długim przytrzymaniem).
 
 ## Historia zmian (skrót)
 
+- **1.3.8** — pigułka nie blokuje kliknięć w aplikację pod spodem (overlay
+  na wysokość pigułki, nie pełny ekran).
 - **1.3.7** — NIXI sama szuka (pogoda, Wikipedia, liczenie), znajduje
   telefon (głośność+wibracja), ciche reguły umieją też przypomnienie i
   pamięć. Ekran główny schudł: jedna kula, jeden przycisk, bez diagnostyki

@@ -819,6 +819,7 @@ class LiveSessionService : Service() {
                 NixiState.wantScreenCapture.value = false
                 NixiState.manualMode.value = false
                 NixiState.orbState.value = NixiState.OrbState.IDLE
+                runCatching { dev.nixi.overlay.ConversationHost.hide() }
                 // 2) dźwięk i sieć
                 runCatching { AudioBus.disableEchoCancel() }
                 runCatching { player.stop() }

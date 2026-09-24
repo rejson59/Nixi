@@ -119,12 +119,26 @@ class ConversationActivity : ComponentActivity() {
         setTurnScreenOn(true)
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
-        // Twarda gwarancja braku przyciemnienia: nawet jeśli jakiś motyw
-        // producenta (HyperOS lubi dokładać swoje) włączyłby dim, gasimy go
-        // tu bezpośrednio na oknie.
+        // Okno TYLKO na wysokość pigułki — reszta ekranu nie łapie kliknięć.
         runCatching {
             window.setDimAmount(0f)
             window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            val lp = window.attributes
+            lp.gravity = android.view.Gravity.TOP or android.view.Gravity.CENTER_HORIZONTAL
+            lp.width = android.view.WindowManager.LayoutParams.MATCH_PARENT
+            lp.height = android.view.WindowManager.LayoutParams.WRAP_CONTENT
+            lp.flags = lp.flags or
+                android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                android.view.WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
+            window.attributes = lp
+            window.setLayout(
+                android.view.WindowManager.LayoutParams.MATCH_PARENT,
+                android.view.WindowManager.LayoutParams.WRAP_CONTENT,
+            )
+        }
+
+        if (intent?.getBooleanExtra("ask_projection", false) == true) {
+            requestProjection()
         }
 
         setContent {
@@ -229,7 +243,7 @@ fun ConversationUi(
     val cutoutTop = cutout.calculateTopPadding()
     val pillTop = (if (cutoutTop > topInset) cutoutTop else topInset) + 10.dp
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Column(modifier = Modifier.fillMaxWidth()) {
         // ── JEDNA pigułka: kula + status + sterowanie ─────────────────────
         AnimatedVisibility(
             visible = shown && !closing,
@@ -241,7 +255,7 @@ fun ConversationUi(
                 targetOffsetY = { -it - 24 },
                 animationSpec = tween(220),
             ) + fadeOut(tween(180)),
-            modifier = Modifier.align(Alignment.TopCenter),
+            modifier = Modifier.fillMaxWidth(),
         ) {
             GlassPill(
                 modifier = Modifier
@@ -339,8 +353,8 @@ fun ConversationUi(
             ) + fadeIn(tween(220)) + scaleIn(initialScale = 0.96f, animationSpec = tween(280)),
             exit = fadeOut(tween(200)),
             modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 20.dp + bottomInset),
+                .fillMaxWidth()
+                .padding(top = 8.dp, bottom = 8.dp + bottomInset),
         ) {
             GlassPill(
                 modifier = Modifier

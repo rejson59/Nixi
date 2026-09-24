@@ -35,6 +35,7 @@
 
     <!-- Wznawianie nasłuchu po restarcie telefonu -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <!-- Sterowanie telefonem: głośność, wibracja, jasność (osobna zgoda WRITE_SETTINGS) -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
