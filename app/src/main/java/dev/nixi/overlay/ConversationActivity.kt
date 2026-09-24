@@ -13,6 +13,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,7 +22,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -182,38 +182,43 @@ fun ConversationUi(
         else -> 0f
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xE60A0613))
-    ) {
-        // ── Kula + status ────────────────────────────────────
+    // Tło ma zostać WIDOCZNE (aplikacja/ekran pod spodem), więc nie ma tu
+    // żadnego przyciemniającego overlayu — czytelność zapewnia szklana
+    // pigułka u góry i pasek przycisków na dole.
+    val cutoutTop = cutout.calculateTopPadding()
+    val pillTop = (if (cutoutTop > topInset) cutoutTop else topInset) + 10.dp
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // ── Szklana pigułka: kula + status (góra, na środku) ──
         Column(
             modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(
-                    start = 16.dp + cutout.calculateStartPadding(androidx.compose.ui.unit.LayoutDirection.Ltr),
-                    top = 24.dp + topInset,
-                )
+                .align(Alignment.TopCenter)
+                .padding(top = pillTop)
+                .clip(RoundedCornerShape(30.dp))
+                .background(Color(0x590B0714))
+                .border(1.dp, Color(0x2EFFFFFF), RoundedCornerShape(30.dp))
+                .padding(horizontal = 18.dp, vertical = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            NixiOrb(size = 116.dp, state = state, level = level)
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "NIXI",
-                color = NixiText,
-                fontWeight = FontWeight.Bold,
-                fontSize = 20.sp,
-                modifier = Modifier.padding(start = 30.dp),
-            )
+            NixiOrb(size = 92.dp, state = state, level = level)
             Spacer(Modifier.height(4.dp))
-            StatusChip(state, lastTool)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "NIXI",
+                    color = NixiText,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                )
+                Spacer(Modifier.width(8.dp))
+                StatusChip(state, lastTool)
+            }
             if (tpm.limit > 0) {
+                Spacer(Modifier.height(4.dp))
                 Text(
                     "tokeny: ${tpm.used}/${tpm.limit}" +
                         if (tpm.backoffSec > 0) " • pauza ${tpm.backoffSec}s" else "",
                     color = if (tpm.percent > 90) Color(0xFFFFC46B) else NixiTextDim,
                     fontSize = 11.sp,
-                    modifier = Modifier.padding(start = 12.dp, top = 4.dp),
                 )
             }
         }
@@ -222,7 +227,11 @@ fun ConversationUi(
         Row(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 20.dp + bottomInset),
+                .padding(bottom = 16.dp + bottomInset)
+                .clip(RoundedCornerShape(28.dp))
+                .background(Color(0x590B0714))
+                .border(1.dp, Color(0x2EFFFFFF), RoundedCornerShape(28.dp))
+                .padding(horizontal = 18.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             RoundButton(icon = Icons.Filled.TouchApp, label = "ręczny",
@@ -421,7 +430,6 @@ private fun StatusChip(state: NixiState.OrbState, lastTool: String) {
     Surface(
         shape = RoundedCornerShape(999.dp),
         color = Color(0xB3171029),
-        modifier = Modifier.padding(start = 12.dp),
     ) {
         Row(
             Modifier.padding(horizontal = 12.dp, vertical = 6.dp),

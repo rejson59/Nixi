@@ -75,6 +75,7 @@ Ta wersja nie dodaje nowych „modułów” — porządkuje i utwardza to, co ju
 - **Piesek nasłuchu**: HyperOS potrafi ubić usługę nasłuchu, gdy aplikacja jest zamknięta — teraz alarm co 15 minut sprawdza, czy „Hej Nixi" nadal żyje, i podnosi nasłuch (plus reakcja na zrzucenie aplikacji z listy ostatnich). Uczciwie: nie pomoże po ręcznym „Wymuś zatrzymanie".
 - **Tryb ręczny przeżywa obrót telefonu**: rozmiar podglądu był brany raz przy starcie, więc po obrocie zrzuty były przycięte, a `screen_tap` klikał obok celu. Teraz zmiana wyświetlacza odtwarza podgląd i aktualizuje rozdzielczość dla narzędzi.
 - **Auto-ECO**: poniżej 20% baterii (bez ładowania) nasłuch sam przechodzi w tryb ECO — mniej ciepła i zużycia, a „Hej Nixi" nadal działa.
+- **Okno rozmowy nie przyciemnia już ekranu**: tło (Twoja aplikacja, film, cokolwiek masz pod spodem) zostaje widoczne. Kula, stan NIXI i licznik tokenów są teraz w jednej **szklanej pigułce na górze, na środku**, a przyciski (ręczny / aplikacja / koniec) w podobnym, półprzezroczystym pasku na dole — dzięki temu są czytelne nad dowolnym tłem.
 - **Współrzędne w jednym, przetestowanym miejscu**: logika „0..100 w obu osiach = procenty" wyszła z obiektu zależnego od Androida do `util/ScreenCoords` i ma testy jednostkowe; doszły też testy granic dnia (o północy okna dnia stykają się co do sekundy).
 
 **UX na telefonie (Redmi Note 14 Pro 5G):**
