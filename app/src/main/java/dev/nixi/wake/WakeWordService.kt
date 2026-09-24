@@ -77,7 +77,8 @@ class WakeWordService : Service() {
             lastStatsLog = now
             LogBus.log(
                 "wake.stats",
-                engine.statsSummary() + " cpu=${cpuMs}ms/${window}ms (~${perMinute}ms/min)"
+                engine.statsSummary() + " " + engine.diagnostics() +
+                    " cpu=${cpuMs}ms/${window}ms (~${perMinute}ms/min)"
             )
         }
 

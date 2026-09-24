@@ -125,6 +125,7 @@ class WakeCascadeTest {
             System.arraycopy(test, i, chunk, 0, len)
             if (engine.onPcm(chunk, len)) hit = true
             i += len
+            println("chunk $i/${test.size}: ${engine.diagnostics()}")
         }
         println("kaskada: ${engine.statsSummary()}")
         assertTrue("nie rozpoznano frazy (stats: ${engine.statsSummary()})", hit)

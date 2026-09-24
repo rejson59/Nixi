@@ -253,6 +253,22 @@ class WakeEngine {
 
     fun statsSummary(): String = stats.summary()
 
+    /**
+     * Diagnostyka detektora do logów: ile klatek już mamy, ile potrzeba do
+     * pierwszego stopnia i ile ma szablon drugiego stopnia, plus progi.
+     * Bez tego przy „nasłuch nie reaguje" nie da się odróżnić złego progu od
+     * zbyt krótkiej historii klatek. Trafia do logu raz na minutę (wake.stats).
+     */
+    @Synchronized
+    fun diagnostics(): String {
+        val need = model.stage1Template.size * stride
+        val t2 = model.stage2Templates.firstOrNull()?.size ?: 0
+        return "klatki1=${s1frames.size}/$need klatki2=${frames.size}/$t2 " +
+            "szablony=${model.rawTemplates.size} prog1=%.3f prog2=%.3f".format(
+                model.stage1Threshold(sensitivity), model.stage2Threshold(sensitivity)
+            )
+    }
+
     // ── Wejście PCM ───────────────────────────────────────────────────────
 
     /**
