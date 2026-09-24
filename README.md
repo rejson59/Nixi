@@ -65,6 +65,18 @@ Ta wersja nie dodaje nowych „modułów” — porządkuje i utwardza to, co ju
 - Zamknięcie okna rozmowy gestem „wstecz” **nie kończyło sesji** (mikrofon zostawał włączony) — teraz okno faktycznie zamykane kończy sesję i sprząta po sobie.
 - Kula animuje się na klatkach ekranu (płynniej na 120 Hz, mniej pracy w spoczynku), a powrót do aplikacji odświeża dane z Supabase **najwyżej raz na 15 s** (wcześniej każde wejście na zakładkę to były 3 zapytania).
 
+**Trzecia runda (echo, szybkość startu, trwałość, tło):**
+
+- **Koniec „rozmowy z samą sobą"**: mikrofon zbierał głos NIXI z głośnika i wysyłał go do modelu (fałszywe przerwania, zaśmiecone transkrypcje). Teraz działa **bramka półduplex** (gdy NIXI mówi, nie nadajemy jej własnego głosu) plus **AEC** (`AcousticEchoCanceler`) na sesji mikrofonu. Przerwanie głosem nadal działa — wymaga dwóch głośnych klatek pod rząd (≈128 ms), więc echo i stuknięcia nie ucinają już odpowiedzi.
+- **Krótszy start sesji**: prompt systemowy powstawał z ~10 zapytań do Supabase **po kolei** (i po przekroczeniu limitu startował bez kontekstu). Teraz zapytania lecą **równolegle**, persona i profil są **cache'owane lokalnie na 24 h** (z odświeżaniem w tle), a czas budowy promptu trafia do logów (`prompt.build`).
+- **TPM liczy też tekst**: wcześniej budżet widział tylko audio, więc prompt, polecenia tekstowe i odpowiedzi narzędzi nie były rozliczane (limit „nigdy nie przekroczymy" był nieprawdą).
+- **Nowe fakty i ustawienia w końcu się zapisywały**: `memory_facts` i `admin_table` używały wzorca „PATCH, a jak się nie uda — INSERT". PATCH na nieistniejący klucz zwraca 200 z pustą listą, więc **INSERT nigdy się nie wykonywał** — nowe fakty o Tobie i nowe ustawienia (np. imię asystentki) przepadały. Teraz to prawdziwy upsert (`ON CONFLICT`).
+- **Trwała kolejka zapisów**: gdy nie ma internetu, fakty z pamięci, podsumowania rozmów i logi idą do kolejki na dysku i są doręczane, gdy sieć wróci (start aplikacji, koniec sesji, piesek). Bez tego ginęły bez śladu.
+- **Piesek nasłuchu**: HyperOS potrafi ubić usługę nasłuchu, gdy aplikacja jest zamknięta — teraz alarm co 15 minut sprawdza, czy „Hej Nixi" nadal żyje, i podnosi nasłuch (plus reakcja na zrzucenie aplikacji z listy ostatnich). Uczciwie: nie pomoże po ręcznym „Wymuś zatrzymanie".
+- **Tryb ręczny przeżywa obrót telefonu**: rozmiar podglądu był brany raz przy starcie, więc po obrocie zrzuty były przycięte, a `screen_tap` klikał obok celu. Teraz zmiana wyświetlacza odtwarza podgląd i aktualizuje rozdzielczość dla narzędzi.
+- **Auto-ECO**: poniżej 20% baterii (bez ładowania) nasłuch sam przechodzi w tryb ECO — mniej ciepła i zużycia, a „Hej Nixi" nadal działa.
+- **Współrzędne w jednym, przetestowanym miejscu**: logika „0..100 w obu osiach = procenty" wyszła z obiektu zależnego od Androida do `util/ScreenCoords` i ma testy jednostkowe; doszły też testy granic dnia (o północy okna dnia stykają się co do sekundy).
+
 **UX na telefonie (Redmi Note 14 Pro 5G):**
 
 - Okno rozmowy dostało **insety** (status bar, wycięcie na aparat, pasek nawigacji) — kula przestała wchodzić pod dziurkę kamery, a przyciski pod pasek gestów.
@@ -72,7 +84,7 @@ Ta wersja nie dodaje nowych „modułów” — porządkuje i utwardza to, co ju
 - Nowa sekcja **„Telefon: praca w tle (Xiaomi/HyperOS)”** w Ustawieniach: bateria bez ograniczeń, autostart, edytor uprawnień HyperOS, wezwanie na pełnym ekranie — z podglądem stanu, który odświeża się po powrocie z ustawień systemowych.
 - Logi mają większe pola dotyku, ekran główny pokazuje stan sesji, zużycie tokenów i ewentualny problem z mikrofonem.
 
-**Testy:** CI uruchamia teraz testy jednostkowe (`testDebugUnitTest`) dla logiki czasu, TPM, DTW wake-worda i odczytu dat przypomnień — oprócz budowania APK.
+**Testy:** CI uruchamia testy jednostkowe (`testDebugUnitTest`) dla logiki czasu (formaty, wątki, granice dnia), TPM, DTW wake-worda, odczytu dat przypomnień i współrzędnych trybu ręcznego — oprócz budowania APK.
 
 ---
 

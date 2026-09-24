@@ -132,7 +132,7 @@ object AudioBus {
         echoCancelActive = ok
         LogBus.log(
             "audio.aec",
-            if (ok) "usuwanie echa włączone" else "ten telefon nie daje AEC — włączam bramkę półduplex",
+            if (ok) "usuwanie echa (AEC) włączone" else "brak AEC — pomaga bramka półduplex",
             if (ok) "ok" else "warn"
         )
         ok

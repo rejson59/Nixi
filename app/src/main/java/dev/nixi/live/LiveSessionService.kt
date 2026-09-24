@@ -356,15 +356,32 @@ class LiveSessionService : Service() {
             /** Licznik głośnych klatek pod rząd — chroni przed echem głośnika. */
             private var loudFrames = 0
 
+            /** Czy logowaliśmy już pominięcie klatek (raz na sesję, bez spamu). */
+            private var gateLogged = false
+
             override fun onPcm(pcm: ShortArray, len: Int) {
                 val c = client ?: return
                 if (!c.isOpen()) return
-                // Bramka półduplex: gdy NIXI mówi i nie mamy AEC, mikrofon
-                // zbiera jej własny głos z głośnika. Wysyłanie tego do modelu
-                // kończyło się „rozmową z samą sobą” i fałszywymi przerwaniami.
-                // Barge-in nadal działa — poziom leci osobnym callbackiem,
-                // a przerwanie czyści kolejkę odtwarzacza (patrz onLevel).
-                if (!AudioBus.echoCancelActive && player.isPlaying()) return
+                // Bramka półduplex: gdy NIXI mówi, mikrofon zbiera jej własny
+                // głos z głośnika. Wysyłanie tego do modelu kończyło się
+                // „rozmową z samą sobą” i fałszywymi przerwaniami.
+                //
+                // Dlaczego nie polegamy na AEC: część telefonów zwraca obiekt
+                // AEC, które „jest włączone", ale realnie nic nie tłumi.
+                // Bramka jest deterministyczna. AEC zostaje włączone, bo
+                // poprawia jakość klatek, które i tak wysyłamy (np. zaraz po
+                // przerwaniu, gdy głos NIXI jeszcze wybrzmiewa).
+                //
+                // Barge-in nadal działa: poziom leci osobnym callbackiem,
+                // a przerwanie czyści kolejkę odtwarzacza (patrz onLevel) —
+                // po nim bramka otwiera się natychmiast.
+                if (player.isPlaying()) {
+                    if (!gateLogged) {
+                        gateLogged = true
+                        LogBus.log("live.gate", "NIXI mówi — nie wysyłam jej własnego głosu do modelu")
+                    }
+                    return
+                }
                 val sec = len / 16000.0
                 val tokens = TpmGuard.tokensForAudioSeconds(sec)
                 if (!tpm.canSend(tokens)) {
