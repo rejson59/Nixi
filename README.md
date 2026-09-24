@@ -83,12 +83,20 @@ Ta wersja nie dodaje nowych „modułów” — porządkuje i utwardza to, co ju
 - **Piesek nasłuchu**: HyperOS potrafi ubić usługę nasłuchu, gdy aplikacja jest zamknięta — teraz alarm co 15 minut sprawdza, czy „Hej Nixi" nadal żyje, i podnosi nasłuch (plus reakcja na zrzucenie aplikacji z listy ostatnich). Uczciwie: nie pomoże po ręcznym „Wymuś zatrzymanie".
 - **Tryb ręczny przeżywa obrót telefonu**: rozmiar podglądu był brany raz przy starcie, więc po obrocie zrzuty były przycięte, a `screen_tap` klikał obok celu. Teraz zmiana wyświetlacza odtwarza podgląd i aktualizuje rozdzielczość dla narzędzi.
 - **Auto-ECO**: poniżej 20% baterii (bez ładowania) nasłuch sam przechodzi w tryb ECO — mniej ciepła i zużycia, a „Hej Nixi" nadal działa.
-- **Okno rozmowy nie przyciemnia już ekranu**: tło (Twoja aplikacja, film, cokolwiek masz pod spodem) zostaje widoczne. Kula, stan NIXI i licznik tokenów są teraz w jednej **szklanej pigułce na górze, na środku**, a przyciski (ręczny / aplikacja / koniec) w podobnym, półprzezroczystym pasku na dole — dzięki temu są czytelne nad dowolnym tłem.
+- **Okno rozmowy nie przyciemnia już ekranu**: tło (Twoja aplikacja, film, cokolwiek masz pod spodem) zostaje widoczne. Kula, stan NIXI i licznik tokenów są teraz w jednej **szklanej pigułce na górze, na środku** (w piątej rundzie doszły do niej także przyciski — pasek na dole zniknął; szczegóły niżej).
 - **Współrzędne w jednym, przetestowanym miejscu**: logika „0..100 w obu osiach = procenty" wyszła z obiektu zależnego od Androida do `util/ScreenCoords` i ma testy jednostkowe; doszły też testy granic dnia (o północy okna dnia stykają się co do sekundy).
+
+**Piąta runda (wygląd: jedna pigułka, posegregowane ustawienia):**
+
+- **Całe wywołanie NIXI w jednej szklanej pigułce** na górze ekranu: kula, stan („słucham…”, „myślę…”), ostatnie narzędzie, licznik tokenów i sterowanie (ręczny / aplikacja / koniec). Dolny pasek zniknął, więc nic nie zasłania treści pod spodem.
+- **Pigułka wjeżdża z góry ekranu** (`slideInVertically` + rozjaśnienie, kula delikatnie „wskakuje”), a przy zamykaniu chowa się tą samą drogą, zanim okno zniknie — koniec ze skokowym pojawianiem się okna.
+- **Zero przyciemniania — teraz z twardą gwarancją**: oprócz `backgroundDimEnabled=false` okno czyści `FLAG_DIM_BEHIND` i ustawia `setDimAmount(0)`, a paski systemowe w tym oknie są przezroczyste (wcześniej zostawał po nich ciemny pas — to właśnie wyglądało jak „przyciemnione tło”).
+- **Ustawienia posegregowane w cztery zakładki**: Mózg (Gemini, limity tokenów, głos), Nasłuch (czułość, ECO, rejestracja wzorca, statystyki), Dane (Supabase, Spotify, prywatność), Telefon (praca w tle na HyperOS, uprawnienia). Każda grupa to szklana karta z opisem, a nie ciąg luźnych wierszy.
+- **Jeden wspólny język wyglądu** (`ui/components/Glass.kt`): karty, pastylki, przyciski i zakładki w jednym miejscu — ekran główny, nawigacja, ustawienia i onboarding wyglądają spójnie, a tło ma łagodny gradient zamiast płaskiej czerni.
 
 **UX na telefonie (Redmi Note 14 Pro 5G):**
 
-- Okno rozmowy dostało **insety** (status bar, wycięcie na aparat, pasek nawigacji) — kula przestała wchodzić pod dziurkę kamery, a przyciski pod pasek gestów.
+- Okno rozmowy dostało **insety** (status bar, wycięcie na aparat, pasek nawigacji) — pigułka nie wchodzi pod dziurkę kamery ani pod pasek gestów.
 - Tryb ręczny prosi o zgodę na podgląd ekranu **dokładnie raz** (wcześniej dwa efekty potrafiły wystawić dwa systemowe dialogi), a odmowa jest respektowana i zgłaszana modelowi.
 - Nowa sekcja **„Telefon: praca w tle (Xiaomi/HyperOS)”** w Ustawieniach: bateria bez ograniczeń, autostart, edytor uprawnień HyperOS, wezwanie na pełnym ekranie — z podglądem stanu, który odświeża się po powrocie z ustawień systemowych.
 - Logi mają większe pola dotyku, ekran główny pokazuje stan sesji, zużycie tokenów i ewentualny problem z mikrofonem.
