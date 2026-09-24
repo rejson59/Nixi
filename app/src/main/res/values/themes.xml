@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.Nixi" parent="android:Theme.Material.NoActionBar">
-        <item name="android:windowBackground">@color/nixi_bg</item>
+        <item name="android:windowBackground">@drawable/bg_nixi</item>
         <item name="android:statusBarColor">@color/nixi_bg</item>
         <item name="android:navigationBarColor">@color/nixi_bg</item>
         <item name="android:windowLightStatusBar">false</item>
@@ -9,11 +9,22 @@
         <item name="android:colorBackground">@color/nixi_bg</item>
     </style>
 
-    <!-- Półprzezroczysty, powyżej blokadki -->
+    <!--
+      Okno rozmowy: półprzezroczyste, powyżej blokadki, BEZ przyciemniania.
+      Paski systemowe muszą być przezroczyste, bo inaczej nad pigułką i pod
+      nią widać ciemny pas — to właśnie wyglądało jak „przyciemnione tło".
+    -->
     <style name="Theme.Nixi.Conversation" parent="Theme.Nixi">
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:windowBackground">@android:color/transparent</item>
         <item name="android:windowShowWallpaper">false</item>
         <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:enforceStatusBarContrast">false</item>
+        <item name="android:enforceNavigationBarContrast">false</item>
+        <item name="android:windowNoTitle">true</item>
     </style>
 </resources>

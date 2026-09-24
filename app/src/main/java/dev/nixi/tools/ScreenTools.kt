@@ -6,6 +6,7 @@ import kotlinx.coroutines.launch
 import dev.nixi.accessibility.NixiAccessibilityService
 import dev.nixi.screen.ScreenCaptureService
 import dev.nixi.util.LogBus
+import dev.nixi.util.ScreenCoords
 
 /**
  * TRYB RĘCZNY — NIXI widzi ekran (zrzuty) i steruje nim (tap/swipe/tekst),
@@ -41,9 +42,16 @@ object ScreenTools {
     }
 
     fun getScreen(): ToolResult {
+        if (!NixiAccessibilityService.isAvailable()) {
+            return ToolResult.fail(
+                "Usługa dostępności NIXI jest wyłączona, więc nie mogę klikać. " +
+                    "Poproś użytkownika, aby włączył ją w Ustawienia → Dostępność → NIXI."
+            )
+        }
         val svc = ScreenCaptureService.instance
             ?: return ToolResult.fail(
-                "Brak podglądu ekranu. Uruchom screen_manual_start i poproś o zgodę."
+                "Brak podglądu ekranu (użytkownik nie dał jeszcze zgody). " +
+                    "Uruchom screen_manual_start i poproś o zgodę na podgląd ekranu."
             )
         val jpeg = svc.screenshotJpeg()
             ?: return ToolResult.fail("Nie udało się pobrać zrzutu ekranu.")
@@ -55,8 +63,14 @@ object ScreenTools {
 
     fun tap(x: Int, y: Int): ToolResult {
         val (w, h) = ToolContext.screenWidthPx to ToolContext.screenHeightPx
-        val xPx = if (x in 0..100 && w > 1000) (x / 100f * w).toInt() else x
-        val yPx = if (y in 0..100 && h > 1000) (y / 100f * h).toInt() else y
+        if (w <= 0 || h <= 0) {
+            return ToolResult.fail("Nie znam rozdzielczości ekranu — najpierw screen_get.")
+        }
+        if (x < 0 || y < 0) {
+            // brak współrzędnych w wywołaniu nie może kończyć się kliknięciem (0,0)
+            return ToolResult.fail("Brak współrzędnych — podaj x i y.")
+        }
+        val (xPx, yPx) = ScreenCoords.pair(x, y, w, h)
         val ok = NixiAccessibilityService.instance?.tap(xPx.toFloat(), yPx.toFloat()) ?: false
         if (!ok) {
             return ToolResult.fail(
@@ -70,10 +84,18 @@ object ScreenTools {
     fun swipe(x1: Int, y1: Int, x2: Int, y2: Int, durationMs: Int): ToolResult {
         val svc = NixiAccessibilityService.instance
             ?: return ToolResult.fail("Brak sterowania (Accessibility wyłączony).")
-        val ok = svc.swipe(x1.toFloat(), y1.toFloat(), x2.toFloat(), y2.toFloat(),
+        if (x1 < 0 || y1 < 0 || x2 < 0 || y2 < 0) {
+            return ToolResult.fail("Brak współrzędnych — podaj x1, y1, x2, y2.")
+        }
+        val (w, h) = ToolContext.screenWidthPx to ToolContext.screenHeightPx
+        // te same zasady co w screen_tap: małe liczby = procenty
+        val (ax, ay) = ScreenCoords.pair(x1, y1, w, h)
+        val (bx, by) = ScreenCoords.pair(x2, y2, w, h)
+        val ok = svc.swipe(ax.toFloat(), ay.toFloat(), bx.toFloat(), by.toFloat(),
             durationMs.toLong().coerceIn(80, 1500))
-        LogBus.log("screen.swipe", "$x1,$y1 -> $x2,$y2")
-        return if (ok) ToolResult.ok("Przesunięto.") else ToolResult.fail("Gest nie przeszedł.")
+        LogBus.log("screen.swipe", "$ax,$ay -> $bx,$by")
+        return if (ok) ToolResult.ok("Przesunięto.")
+        else ToolResult.fail("Gest nie przeszedł (inny gest w trakcie albo brak usługi).")
     }
 
     fun type(text: String): ToolResult {

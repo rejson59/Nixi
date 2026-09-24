@@ -14,14 +14,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -29,31 +25,40 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import dev.nixi.NixiState
 import dev.nixi.db.SupabaseHub
 import dev.nixi.store.LocalStore
 import dev.nixi.tools.SpotifyApi
 import dev.nixi.ui.SessionLauncher
+import dev.nixi.ui.components.GlassChip
+import dev.nixi.ui.components.GlassDivider
 import dev.nixi.ui.components.NixiOrb
-import dev.nixi.ui.theme.NixiBg
+import dev.nixi.ui.components.PillButton
+import dev.nixi.ui.components.ScreenHeader
+import dev.nixi.ui.components.SectionCard
+import dev.nixi.ui.components.StatusPill
+import dev.nixi.ui.components.rememberOnResumeTick
 import dev.nixi.ui.theme.NixiOk
 import dev.nixi.ui.theme.NixiPurple
-import dev.nixi.ui.theme.NixiSurface
 import dev.nixi.ui.theme.NixiText
 import dev.nixi.ui.theme.NixiTextDim
 import dev.nixi.ui.theme.NixiWarn
 import org.json.JSONObject
 
+/**
+ * EKRAN GŁÓWNY — kula NIXI na środku, pod nią stan wszystkich usług
+ * (modele, Supabase, Spotify, nasłuch) i przyciski do wywołania rozmowy.
+ * Wszystko w szklanych kartach, żeby dało się to ogarnąć jednym spojrzeniem.
+ */
 @Composable
 fun HomeScreen() {
     val context = LocalContext.current
@@ -63,8 +68,16 @@ fun HomeScreen() {
     val wake by NixiState.wakeActive.collectAsState()
     var recent by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var loadingRecent by remember { mutableStateOf(true) }
+    val tpm by NixiState.tpm.collectAsState()
+    val audioError by NixiState.lastAudioError.collectAsState()
+    val inSession by NixiState.inSession.collectAsState()
+    val sessionError by NixiState.lastSessionError.collectAsState()
+    val checkItems by NixiState.selfCheck.collectAsState()
+    val checkRunning by NixiState.selfCheckRunning.collectAsState()
+    val tick = rememberOnResumeTick()
+    val scope = rememberCoroutineScope()
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(tick) {
         val rows = SupabaseHub.recentConversations(8)
         recent = rows
         loadingRecent = false
@@ -78,108 +91,251 @@ fun HomeScreen() {
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("NIXI", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = NixiText)
-                Spacer(Modifier.width(12.dp))
-                StatusDot(
-                    text = if (wake) "nasłuch aktywny" else "nasłuch wyłączony",
-                    color = if (wake) NixiOk else NixiWarn,
-                )
-            }
-        }
-
-        item {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(300.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                NixiOrb(size = 230.dp, state = state, level = level)
-            }
-        }
-
-        item {
-            // statusy
-            val sbOn = SupabaseHub.available
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                InfoChip("model: ${LocalStore.geminiModel}", Modifier.weight(1f))
-                InfoChip("Supabase: ${if (sbOn) "połączono" else "brak"}", Modifier.weight(1f))
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                InfoChip(
-                    "Spotify: ${if (SpotifyApi.isConnected()) "połączono" else "brak"}",
-                    Modifier.weight(1f)
-                )
-                InfoChip(
-                    "nasłuch CPU: ${LocalStore.wakeCpuMsPerMin} ms/min",
-                    Modifier.weight(1f)
-                )
-            }
-        }
-
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(
-                    onClick = { SessionLauncher.start(context, "button") },
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = NixiPurple),
-                ) {
-                    Text("Rozmów", color = Color.White)
-                }
-                OutlinedButton(
-                    onClick = { SessionLauncher.start(context, "manual", manual = true) },
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text("Tryb ręczny", color = NixiPurple)
-                }
-            }
-        }
-
-        item {
-            Text(
-                "Ostatnie ciekawe rozmowy",
-                color = NixiText,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 15.sp,
+            ScreenHeader(
+                title = "NIXI",
+                subtitle = "Twoja asystentka — powiedz „Hej Nixi” albo dotknij",
+                trailing = {
+                    StatusPill(
+                        text = if (wake) "nasłuch" else "bez nasłuchu",
+                        color = if (wake) NixiOk else NixiWarn,
+                    )
+                },
             )
         }
 
-        if (loadingRecent) {
-            item { Text("Ładowanie…", color = NixiTextDim, fontSize = 13.sp) }
-        } else if (recent.isEmpty()) {
-            item {
-                Text(
-                    "Jeszcze nic tu nie ma — po kilku rozmowach NIXI będzie tu zostawiać krótkie podsumowania.",
-                    color = NixiTextDim, fontSize = 13.sp,
+        item {
+            // kula — serce ekranu; stan pokazuje się na pigułce pod nią
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(268.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                NixiOrb(size = 224.dp, state = state, level = level)
+            }
+        }
+
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                StatusPill(state = state)
+            }
+        }
+
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                PillButton(
+                    text = "Rozmów",
+                    icon = Icons.Filled.Chat,
+                    modifier = Modifier.weight(1f),
+                    onClick = { SessionLauncher.start(context, "button") },
+                )
+                PillButton(
+                    text = "Tryb ręczny",
+                    icon = Icons.Filled.TouchApp,
+                    filled = false,
+                    modifier = Modifier.weight(1f),
+                    onClick = { SessionLauncher.start(context, "manual", manual = true) },
                 )
             }
-        } else {
-            items(recent) { r ->
-                Surface(
-                    color = NixiSurface,
-                    shape = RoundedCornerShape(12.dp),
+        }
+
+        item {
+            SectionCard(
+                title = "Rozmowa z Gemini",
+                subtitle = if (inSession) "Sesja trwa." else "Sprawdź, czy NIXI ma wszystko, czego potrzebuje.",
+                accent = when {
+                    sessionError.isNotBlank() -> dev.nixi.ui.theme.NixiErr
+                    checkItems.isEmpty() -> NixiPurple
+                    checkItems.any { it.level == dev.nixi.util.SelfCheck.Level.ERR } ->
+                        dev.nixi.ui.theme.NixiWarn
+                    else -> NixiOk
+                },
+            ) {
+                if (sessionError.isNotBlank() && !inSession) {
+                    Text(
+                        "Ostatnia próba rozmowy nie udała się:",
+                        color = NixiTextDim, fontSize = 11.sp,
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(sessionError, color = NixiWarn, fontSize = 12.sp)
+                    Spacer(Modifier.height(10.dp))
+                }
+                // Co się stało w ostatniej rozmowie — suche fakty, żeby
+                // „nie odpowiada” miało od razu jakiś konkret.
+                val lastReason = remember(tick) { LocalStore.lastSessionReason }
+                if (lastReason.isNotBlank() && !inSession) {
+                    Text(
+                        "Ostatnia rozmowa: " + lastReason +
+                            " • ${LocalStore.lastSessionDuration}s" +
+                            " • klatki audio: ${LocalStore.lastSessionAudioChunks}" +
+                            " • odpowiedzi: ${LocalStore.lastSessionAudioReplies}" +
+                            " • wariant ${LocalStore.lastSessionVariant}" +
+                            (if (LocalStore.lastSessionSetupOk) "" else " (sesja niepotwierdzona)"),
+                        color = NixiTextDim, fontSize = 11.sp, maxLines = 3,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                }
+                PillButton(
+                    text = if (checkRunning) "Sprawdzam…" else "Sprawdź NIXI",
                     modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        scope.launch {
+                            dev.nixi.util.SelfCheck.run(context)
+                        }
+                    },
+                )
+                if (checkItems.isNotEmpty()) {
+                    Spacer(Modifier.height(12.dp))
+                    checkItems.forEachIndexed { index, item ->
+                        if (index > 0) {
+                            Spacer(Modifier.height(8.dp))
+                            GlassDivider()
+                            Spacer(Modifier.height(8.dp))
+                        }
+                        val color = when (item.level) {
+                            dev.nixi.util.SelfCheck.Level.OK -> NixiOk
+                            dev.nixi.util.SelfCheck.Level.WARN -> NixiWarn
+                            dev.nixi.util.SelfCheck.Level.ERR -> dev.nixi.ui.theme.NixiErr
+                        }
+                        Row(verticalAlignment = Alignment.Top) {
+                            Box(
+                                Modifier
+                                    .padding(top = 6.dp)
+                                    .size(9.dp)
+                                    .clip(CircleShape)
+                                    .background(color)
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(item.label, color = NixiText, fontSize = 13.sp)
+                                Text(item.detail, color = NixiTextDim, fontSize = 11.sp)
+                                if (item.fix.isNotBlank()) {
+                                    Text(item.fix, color = NixiPurple, fontSize = 11.sp)
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Jedno tapnięcie i NIXI sama sprawdzi klucz API, nazwę modelu, " +
+                            "mikrofon, nasłuch, bazę i uprawnienia — i powie, co poprawić.",
+                        color = NixiTextDim, fontSize = 11.sp,
+                    )
+                }
+            }
+        }
+
+        if (audioError.isNotBlank()) {
+            item {
+                SectionCard(
+                    title = "Problem z mikrofonem",
+                    accent = NixiWarn,
                 ) {
-                    Column(Modifier.padding(12.dp)) {
+                    Text(audioError, color = NixiTextDim, fontSize = 12.sp)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Jeśli to zajęty mikrofon (rozmowa, dyktafon), NIXI wznowi nasłuch sama.",
+                        color = NixiTextDim, fontSize = 11.sp,
+                    )
+                }
+            }
+        }
+
+        item {
+            if (!LocalStore.wakeEnabled) {
+                SectionCard(title = "Nasłuch wyłączony", accent = NixiWarn) {
+                    Text(
+                        "„Hej Nixi” nie działa — włącz nasłuch w Ustawieniach → Nasłuch, " +
+                            "żeby NIXI reagowała na głos.",
+                        color = NixiTextDim, fontSize = 12.sp,
+                    )
+                }
+            } else if (LocalStore.wakeNeedsEnroll) {
+                SectionCard(title = "Nagraj wzorzec jeszcze raz", accent = NixiWarn) {
+                    Text(
+                        "Detektor „Hej Nixi” został przebudowany i nie rozumie starego " +
+                            "wzorca. Nagraj frazę od nowa (3 próby) w Ustawieniach → Nasłuch.",
+                        color = NixiTextDim, fontSize = 12.sp,
+                    )
+                }
+            }
+        }
+
+        item {
+            SectionCard(
+                title = "Stan NIXI",
+                subtitle = "Skrót tego, co widzi asystentka.",
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    GlassChip("model: ${LocalStore.geminiModel}", Modifier.weight(1f))
+                    GlassChip(
+                        text = "Supabase: ${if (SupabaseHub.available) "połączono" else "brak"}",
+                        dot = if (SupabaseHub.available) NixiOk else NixiTextDim,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    GlassChip(
+                        text = "Spotify: ${if (SpotifyApi.isConnected()) "połączono" else "brak"}",
+                        dot = if (SpotifyApi.isConnected()) NixiOk else NixiTextDim,
+                        modifier = Modifier.weight(1f),
+                    )
+                    GlassChip("nasłuch: ${LocalStore.wakeCpuMsPerMin} ms/min", Modifier.weight(1f))
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    GlassChip(
+                        text = if (inSession) "sesja: trwa" else "sesja: brak",
+                        dot = if (inSession) NixiOk else NixiTextDim,
+                        modifier = Modifier.weight(1f),
+                    )
+                    GlassChip(
+                        text = if (tpm.limit > 0) "tokeny: ${tpm.used}/${tpm.limit}" else "tokeny: —",
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        }
+
+        item {
+            SectionCard(
+                title = "Ostatnie rozmowy",
+                subtitle = "Krótkie podsumowania zapisane w Supabase.",
+            ) {
+                if (loadingRecent) {
+                    Text("Ładowanie…", color = NixiTextDim, fontSize = 13.sp)
+                } else if (recent.isEmpty()) {
+                    Text(
+                        "Jeszcze nic tu nie ma — po kilku rozmowach NIXI zostawi tu " +
+                            "krótkie podsumowania.",
+                        color = NixiTextDim, fontSize = 13.sp,
+                    )
+                } else {
+                    recent.forEachIndexed { index, r ->
+                        if (index > 0) {
+                            Spacer(Modifier.height(10.dp))
+                            GlassDivider()
+                            Spacer(Modifier.height(10.dp))
+                        }
                         Text(
                             r.optString("summary", "—"),
                             color = NixiText, fontSize = 13.sp,
                         )
                         val topics = r.optString("topics", "")
                         if (topics.isNotBlank()) {
+                            Spacer(Modifier.height(2.dp))
                             Text(topics, color = NixiTextDim, fontSize = 11.sp)
                         }
                     }
@@ -188,36 +344,5 @@ fun HomeScreen() {
         }
 
         item { Spacer(Modifier.height(8.dp)) }
-    }
-}
-
-@Composable
-private fun StatusDot(text: String, color: Color) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            Modifier
-                .size(9.dp)
-                .clip(CircleShape)
-                .background(color)
-        )
-        Spacer(Modifier.width(6.dp))
-        Text(text, color = NixiTextDim, fontSize = 12.sp)
-    }
-}
-
-@Composable
-private fun InfoChip(text: String, modifier: Modifier = Modifier) {
-    Surface(
-        color = NixiSurface,
-        shape = RoundedCornerShape(10.dp),
-        modifier = modifier,
-    ) {
-        Text(
-            text,
-            color = NixiTextDim,
-            fontSize = 11.sp,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-            textAlign = TextAlign.Start,
-        )
     }
 }

@@ -2,33 +2,39 @@ package dev.nixi.overlay
 
 import android.app.Activity
 import android.content.Intent
+import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -38,10 +44,6 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -50,43 +52,66 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.media.projection.MediaProjectionManager
 import androidx.core.view.WindowCompat
 import dev.nixi.NixiState
-import dev.nixi.R
 import dev.nixi.live.LiveSessionService
 import dev.nixi.screen.ScreenCaptureService
 import dev.nixi.store.LocalStore
 import dev.nixi.tools.SpotifyApi
+import dev.nixi.ui.components.GlassDivider
+import dev.nixi.ui.components.GlassIconButton
+import dev.nixi.ui.components.GlassPill
 import dev.nixi.ui.components.NixiOrb
-import dev.nixi.ui.theme.NixiBg
+import dev.nixi.ui.components.StatusPill
 import dev.nixi.ui.theme.NixiOk
 import dev.nixi.ui.theme.NixiPurple
 import dev.nixi.ui.theme.NixiSurfaceHi
 import dev.nixi.ui.theme.NixiText
 import dev.nixi.ui.theme.NixiTextDim
-import kotlinx.coroutines.launch
+import dev.nixi.ui.theme.NixiWarn
+import dev.nixi.util.LogBus
+import kotlinx.coroutines.delay
 
 /**
- * Okno rozmowy NIXI:
- *  - kula slide-in w lewym górnym rogu (nad wszystkim, także nad blokadką),
- *  - okna potwierdzeń destrukcyjnych akcji (Tak/Nie),
- *  - konsent MediaProjection + start trybu ręcznego,
- *  - kod parowania Spotify,
- *  - propozycje DDL (SQL) do wklejenia.
+ * Okno rozmowy NIXI — JEDNA szklana pigułka u góry ekranu.
+ *
+ * W pigułce jest wszystko, co dotyczy wywołania asystentki: kula (stan i
+ * poziom głosu), nazwa ze statusem, ostatnie narzędzie, licznik tokenów oraz
+ * sterowanie (tryb ręczny / aplikacja / koniec). Nie ma osobnego paska na
+ * dole ekranu ani żadnego przyciemnienia — tło (Twoja aplikacja, film, cokolwiek
+ * masz pod spodem) zostaje widoczne, a czytelność zapewnia samo szkło.
+ *
+ * Pigułka wjeżdża z góry ekranu (slide-in + delikatne powiększenie kuli),
+ * a przy zamykaniu okna chowa się tą samą drogą, zanim aktywność zniknie.
  */
 class ConversationActivity : ComponentActivity() {
+
+    /** Znacznik czasu ostatniego pytania o zgodę (ochrona przed podwójnym dialogiem). */
+    private var lastProjectionAsk = 0L
+
+    private val projectionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            NixiState.manualMode.value = true
+            ScreenCaptureService.start(this, result.resultCode, result.data!!)
+            LiveSessionService.instance?.onScreenConsent()
+            LogBus.log("manual.consent", "tryb ręczny gotowy")
+        } else {
+            // brak zgody: NIXI musi o tym wiedzieć i nie może zostać w stanie „manual”
+            LiveSessionService.instance?.onScreenDenied()
+            LogBus.log("manual.denied", "użytkownik odmówił", "warn")
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -94,28 +119,18 @@ class ConversationActivity : ComponentActivity() {
         setTurnScreenOn(true)
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
-        val projectionLauncher = registerForActivityResult(
-            ActivityResultContracts.StartActivityForResult()
-        ) { result ->
-            if (result.resultCode == Activity.RESULT_OK) {
-                val data = result.data
-                if (data != null) {
-                    ScreenCaptureService.start(this, result.resultCode, data)
-                    LiveSessionService.instance?.onScreenConsent()
-                }
-            }
+        // Twarda gwarancja braku przyciemnienia: nawet jeśli jakiś motyw
+        // producenta (HyperOS lubi dokładać swoje) włączyłby dim, gasimy go
+        // tu bezpośrednio na oknie.
+        runCatching {
+            window.setDimAmount(0f)
+            window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
         }
 
         setContent {
             ConversationUi(
-                onClose = { finish() },
-                onManualMode = {
-                    val mpm = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-                    NixiState.manualMode.value = true
-                    runCatching {
-                        projectionLauncher.launch(mpm.createScreenCaptureIntent())
-                    }
-                },
+                onClose = { finishSession() },
+                onManualMode = { requestProjection() },
                 onOpenApp = {
                     startActivity(
                         Intent(this, dev.nixi.ui.MainActivity::class.java)
@@ -126,8 +141,30 @@ class ConversationActivity : ComponentActivity() {
         }
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
+    private fun requestProjection() {
+        if (ScreenCaptureService.isRunning()) {
+            NixiState.manualMode.value = true
+            LiveSessionService.instance?.onScreenConsent()
+            return
+        }
+        // Kompozycja potrafi poprosić o zgodę dwa razy w tej samej klatce
+        // (dwa efekty) — dlatego chronimy się krótkim oknem czasowym
+        // zamiast wiecznym „już pytaliśmy”.
+        val now = System.currentTimeMillis()
+        if (now - lastProjectionAsk < 3000) return
+        lastProjectionAsk = now
+        val mpm = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        runCatching { projectionLauncher.launch(mpm.createScreenCaptureIntent()) }
+            .onFailure {
+                LogBus.log("manual.ask", "nie mogę pokazać dialogu: ${it.message}", "warn")
+                LiveSessionService.instance?.onScreenDenied()
+            }
+    }
+
+    /** Zamknięcie okna = grzeczny koniec sesji (sprząta mikrofon i media). */
+    private fun finishSession() {
+        LiveSessionService.stop(this, "użytkownik zamknął okno")
+        finish()
     }
 }
 
@@ -138,124 +175,182 @@ fun ConversationUi(
     onOpenApp: () -> Unit,
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val state by NixiState.orb.collectAsState()
     val micLevel by NixiState.micLevel.collectAsState()
     val speakLevel by NixiState.speakLevel.collectAsState()
     val manual by NixiState.manualMode.collectAsState()
     val pending by NixiState.pendingActions.collectAsState()
     val lastTool by NixiState.lastToolLine.collectAsState()
+    val sessionError by NixiState.lastSessionError.collectAsState()
     val pendingSql by NixiState.pendingSql.collectAsState()
+    val tpm by NixiState.tpm.collectAsState()
 
-    // Narzędzie screen_manual_start tylko ustawia manualMode — tu faktycznie
-    // prosimy o systemową zgodę na podgląd ekranu (inaczej nie pojawiłaby się nigdy).
+    val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val cutout = WindowInsets.displayCutout.asPaddingValues()
+    val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
+    // JEDNA reakcja na żądanie trybu ręcznego (bez podwójnych dialogów).
     LaunchedEffect(manual) {
-        if (manual && ScreenCaptureService.instance == null) onManualMode()
-    }
-
-    // kod Spotify (z narzędzia spotify_connect)
-    var spotifyCode by remember { mutableStateOf<String?>(null) }
-    var spotifyMsg by remember { mutableStateOf("") }
-    LaunchedEffect(Unit) {
-        NixiState.events.collect { e ->
-            when (e) {
-                is NixiState.NixiEvent.ToolDone ->
-                    if (e.name == "spotify_connect" && e.ok) {
-                        spotifyCode = SpotifyApi.deviceFlowUserCode
-                        spotifyMsg = SpotifyApi.deviceFlowUri
-                    }
-                else -> Unit
-            }
-        }
-    }
-    // po znalezieniu kodu: automatyczny polling
-    LaunchedEffect(spotifyCode) {
-        spotifyCode ?: return@LaunchedEffect
-        val result = SpotifyApi.pollDeviceFlow()
-        spotifyCode = null
-        dev.nixi.notif.ActionNotifier.notify(context, "NIXI: Spotify", result, short = true)
-    }
-
-    // automatyczne poproszenie o podgląd ekranu (tryb ręczny bez zgody)
-    var askingScreen by remember { mutableStateOf(false) }
-    LaunchedEffect(manual) {
-        if (manual && !ScreenCaptureService.isRunning() && !askingScreen) {
-            askingScreen = true
-            onManualMode()
-            dev.nixi.util.LogBus.log("manual.ask", "konsent MediaProjection")
-            kotlinx.coroutines.delay(4000)
-            askingScreen = false
-        }
+        if (manual && !ScreenCaptureService.isRunning()) onManualMode()
     }
 
     val level = when (state) {
         NixiState.OrbState.SPEAKING -> speakLevel
         NixiState.OrbState.LISTENING -> micLevel
+        NixiState.OrbState.MANUAL -> micLevel
         else -> 0f
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xE60A0613))
-    ) {
-        // ── Kula + status ────────────────────────────────────
-        Column(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(start = 16.dp, top = 40.dp)
-        ) {
-            NixiOrb(
-                size = 128.dp,
-                state = state,
-                level = level,
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "NIXI",
-                color = NixiText,
-                fontWeight = FontWeight.Bold,
-                fontSize = 20.sp,
-                modifier = Modifier.padding(start = 34.dp),
-            )
-            Spacer(Modifier.height(4.dp))
-            StatusChip(state, lastTool)
+    // ── Wjazd z góry ──────────────────────────────────────────────────────
+    // Okno pojawia się natychmiast (tak działa start aktywności z tła), ale
+    // pigułka wjeżdża z góry ekranu, więc wrażenie jest płynne, a nie skokowe.
+    var shown by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        // jedna klatka opóźnienia, żeby animacja miała od czego wystartować
+        delay(16)
+        shown = true
+    }
+    // Zamknięcie z animacją: najpierw pigułka chowa się do góry (220 ms),
+    // dopiero potem kończymy aktywność — inaczej okno znikałoby skokowo.
+    var closing by remember { mutableStateOf(false) }
+    LaunchedEffect(closing) {
+        if (closing) {
+            delay(220)
+            onClose()
         }
+    }
+    val orbScale by animateFloatAsState(
+        targetValue = if (shown) 1f else 0.82f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        label = "orbScale",
+    )
 
-        // ── Dolny pasek ──────────────────────────────────────
-        Row(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 28.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            RoundButton(icon = { Icon(Icons.Filled.TouchApp, null) }, label = "ręczny",
-                onClick = onManualMode, highlighted = manual)
-            RoundButton(icon = { Icon(Icons.Filled.Home, null) }, label = "aplikacja",
-                onClick = onOpenApp)
-            RoundButton(icon = { Icon(Icons.Filled.Close, null) }, label = "koniec",
-                onClick = onClose, highlighted = false, danger = true)
-        }
+    val cutoutTop = cutout.calculateTopPadding()
+    val pillTop = (if (cutoutTop > topInset) cutoutTop else topInset) + 10.dp
 
-        // ── Propozycja SQL (DDL) ─────────────────────────────
+    Box(modifier = Modifier.fillMaxSize()) {
+        // ── JEDNA pigułka: kula + status + sterowanie ─────────────────────
         AnimatedVisibility(
-            visible = pendingSql.isNotBlank(),
-            enter = fadeIn(tween(250)),
-            exit = fadeOut(tween(250)),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 108.dp),
+            visible = shown && !closing,
+            enter = slideInVertically(
+                initialOffsetY = { -it - 24 },
+                animationSpec = tween(360, easing = LinearOutSlowInEasing),
+            ) + fadeIn(tween(260)),
+            exit = slideOutVertically(
+                targetOffsetY = { -it - 24 },
+                animationSpec = tween(220),
+            ) + fadeOut(tween(180)),
+            modifier = Modifier.align(Alignment.TopCenter),
         ) {
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = NixiSurfaceHi,
+            GlassPill(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp),
+                    .padding(top = pillTop, start = 12.dp, end = 12.dp),
             ) {
-                Column(Modifier.padding(14.dp)) {
-                    Text("NIXI zaproponowała zmianę struktury (DDL)",
-                        color = NixiText, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        // Kula w pigułce — mniejsza, żeby całość była zgrabna
+                        Box(modifier = Modifier.scale(orbScale)) {
+                            NixiOrb(size = 72.dp, state = state, level = level)
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "NIXI",
+                                    color = NixiText,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 18.sp,
+                                )
+                                Spacer(Modifier.width(10.dp))
+                                StatusPill(state = state)
+                            }
+                            if (lastTool.isNotBlank()) {
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "» " + lastTool,
+                                    color = NixiTextDim,
+                                    fontSize = 11.sp,
+                                    maxLines = 2,
+                                )
+                            }
+                            if (sessionError.isNotBlank()) {
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "⚠ " + sessionError,
+                                    color = NixiWarn,
+                                    fontSize = 11.sp,
+                                    maxLines = 3,
+                                )
+                            }
+                            if (tpm.limit > 0) {
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "tokeny: ${tpm.used}/${tpm.limit}" +
+                                        if (tpm.backoffSec > 0) " • pauza ${tpm.backoffSec}s" else "",
+                                    color = if (tpm.percent > 90) NixiWarn else NixiTextDim,
+                                    fontSize = 11.sp,
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.height(12.dp))
+                    GlassDivider()
+                    Spacer(Modifier.height(10.dp))
+
+                    // Sterowanie w tej samej pigułce (wcześniej: osobny pasek na dole)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                    ) {
+                        GlassIconButton(
+                            icon = Icons.Filled.TouchApp,
+                            label = "ręczny",
+                            size = 44.dp,
+                            accent = if (manual) NixiPurple else null,
+                            onClick = onManualMode,
+                        )
+                        GlassIconButton(
+                            icon = Icons.Filled.Home,
+                            label = "aplikacja",
+                            size = 44.dp,
+                            onClick = onOpenApp,
+                        )
+                        GlassIconButton(
+                            icon = Icons.Filled.Close,
+                            label = "koniec",
+                            size = 44.dp,
+                            accent = Color(0xFF7A2C3F),
+                            onClick = { closing = true },
+                        )
+                    }
+                }
+            }
+        }
+
+        // ── Propozycja SQL (DDL) — rzadka, więc osobny szklany panel pod pigułką ──
+        AnimatedVisibility(
+            visible = pendingSql.isNotBlank(),
+            enter = slideInVertically(
+                initialOffsetY = { -it / 2 },
+                animationSpec = tween(280),
+            ) + fadeIn(tween(220)) + scaleIn(initialScale = 0.96f, animationSpec = tween(280)),
+            exit = fadeOut(tween(200)),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 20.dp + bottomInset),
+        ) {
+            GlassPill(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+            ) {
+                Column(Modifier.padding(4.dp)) {
+                    Text(
+                        "NIXI zaproponowała zmianę struktury (DDL)",
+                        color = NixiText, fontWeight = FontWeight.SemiBold, fontSize = 13.sp,
+                    )
                     Spacer(Modifier.height(6.dp))
                     SelectionContainer {
                         Text(
@@ -279,13 +374,15 @@ fun ConversationUi(
                             Spacer(Modifier.width(6.dp))
                             Text("Kopiuj SQL", color = NixiPurple)
                         }
-                        OutlinedButton(onClick = {
+                        TextButton(onClick = {
                             val ref = supabaseProjectRef()
                             if (ref.isNotBlank()) {
                                 runCatching {
                                     context.startActivity(
-                                        Intent(Intent.ACTION_VIEW,
-                                            Uri.parse("https://supabase.com/dashboard/project/$ref/sql/new"))
+                                        Intent(
+                                            Intent.ACTION_VIEW,
+                                            Uri.parse("https://supabase.com/dashboard/project/$ref/sql/new")
+                                        )
                                     )
                                 }
                             }
@@ -321,6 +418,19 @@ fun ConversationUi(
         )
     }
 
+    // Kod parowania Spotify (Device Flow) — tylko gdy serwer zwrócił kod.
+    var spotifyCode by remember {
+        mutableStateOf(SpotifyApi.deviceFlowUserCode.takeIf { it.isNotBlank() })
+    }
+    var spotifyMsg by remember { mutableStateOf(SpotifyApi.deviceFlowUri) }
+    LaunchedEffect(Unit) {
+        NixiState.events.collect { e ->
+            if (e is NixiState.NixiEvent.ToolDone && e.name == "spotify_connect" && e.ok) {
+                spotifyCode = SpotifyApi.deviceFlowUserCode.takeIf { it.isNotBlank() }
+                spotifyMsg = SpotifyApi.deviceFlowUri
+            }
+        }
+    }
     if (spotifyCode != null) {
         AlertDialog(
             onDismissRequest = { spotifyCode = null },
@@ -338,12 +448,14 @@ fun ConversationUi(
                 }
             },
             confirmButton = {
-                TextButton(onClick = {
-                    runCatching {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(spotifyMsg)))
+                if (spotifyMsg.isNotBlank()) {
+                    TextButton(onClick = {
+                        runCatching {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(spotifyMsg)))
+                        }
+                    }) {
+                        Text("Otwórz stronę", color = NixiPurple)
                     }
-                }) {
-                    Text("Otwórz stronę", color = NixiPurple)
                 }
             },
             dismissButton = {
@@ -360,98 +472,5 @@ private fun supabaseProjectRef(): String {
         host.substringBefore('.')
     } catch (_: Exception) {
         ""
-    }
-}
-
-private object ClipboardManagerCompat {
-    fun set(context: android.content.Context, text: String) {
-        val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
-            as android.content.ClipboardManager
-        cm.setPrimaryClip(android.content.ClipData.newPlainText("nixi-sql", text))
-        dev.nixi.util.LogBus.log("sql.copy", "skopiowano do schowka")
-    }
-}
-
-@Composable
-private fun RoundButton(
-    icon: @Composable () -> Unit,
-    label: String,
-    onClick: () -> Unit,
-    highlighted: Boolean = false,
-    danger: Boolean = false,
-) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(
-            modifier = Modifier
-                .size(52.dp)
-                .clip(CircleShape)
-                .background(
-                    when {
-                        danger -> Color(0xFF3A1020)
-                        highlighted -> NixiPurple
-                        else -> Color(0x99171029)
-                    }
-                )
-                .clickable(onClick = onClick),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = when {
-                    danger -> Icons.Filled.Close
-                    highlighted -> Icons.Filled.TouchApp
-                    else -> Icons.Filled.Home
-                },
-                contentDescription = label,
-                tint = if (highlighted) Color.White else NixiText,
-            )
-        }
-        Spacer(Modifier.height(4.dp))
-        Text(label, color = NixiTextDim, fontSize = 11.sp)
-    }
-}
-
-@Composable
-private fun StatusChip(state: NixiState.OrbState, lastTool: String) {
-    val (text, color) = when (state) {
-        NixiState.OrbState.IDLE -> "gotowa" to NixiTextDim
-        NixiState.OrbState.LISTENING -> "słucham…" to NixiOk
-        NixiState.OrbState.THINKING -> "myślę…" to NixiPurple
-        NixiState.OrbState.SPEAKING -> "odpowiadam" to NixiPurple
-        NixiState.OrbState.MANUAL -> "tryb ręczny — steruję ekranem" to NixiPurple
-        NixiState.OrbState.TPM_LIMIT -> "limit tokeni — pauza" to Color(0xFFFFC46B)
-        NixiState.OrbState.ERROR -> "błąd" to Color(0xFFFF7A7A)
-    }
-    Surface(
-        shape = RoundedCornerShape(999.dp),
-        color = Color(0xB3171029),
-        modifier = Modifier.padding(start = 12.dp),
-    ) {
-        Row(
-            Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                Modifier
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(color)
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                text,
-                color = NixiText,
-                fontSize = 12.sp,
-                maxLines = 1,
-            )
-        }
-    }
-    if (lastTool.isNotBlank()) {
-        Text(
-            "» " + lastTool,
-            color = NixiTextDim,
-            fontSize = 11.sp,
-            maxLines = 2,
-            modifier = Modifier.padding(start = 12.dp, top = 4.dp),
-        )
     }
 }

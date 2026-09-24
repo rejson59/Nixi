@@ -33,8 +33,17 @@ object SupabaseHub {
         rebuild()
     }
 
-    /** Odświeża: odkrywanie tabel + uprawnienia + admin_table. (safe z UI) */
-    fun refreshAll() {
+    @Volatile private var lastRefreshAt = 0L
+
+    /**
+     * Odświeża: odkrywanie tabel + uprawnienia + admin_table. (safe z UI)
+     * Throttling: onResume bywa wołane bardzo często (np. powrót z każdego
+     * ekranu), a każde odświeżenie to 3 zapytania do Supabase.
+     */
+    fun refreshAll(force: Boolean = false) {
+        val now = System.currentTimeMillis()
+        if (!force && now - lastRefreshAt < 15_000) return
+        lastRefreshAt = now
         dev.nixi.NixiApp.scope.launch {
             if (!available) return@launch
             runCatching { c().discover() }
@@ -181,29 +190,41 @@ object SupabaseHub {
     fun admin(key: String, default: String = ""): String =
         adminCache[key] ?: default
 
-    suspend fun saveAdmin(key: String, value: String) {
-        if (!available) return
+    /**
+     * Zapis ustawień NIXI. UWAGA: wcześniej robiliśmy tu PATCH i – gdy się nie
+     * udał – INSERT. PATCH na nieistniejący klucz zwraca jednak 200 z pustą
+     * listą, więc INSERT nigdy się nie wykonywał i nowe ustawienie (np. imię
+     * asystentki, język) nie zapisywało się wcale. Teraz to prawdziwy upsert.
+     */
+    suspend fun saveAdmin(key: String, value: String): Boolean {
+        if (!available) return false
         val row = JSONObject().put("key", key).put("value", value)
             .put("updated_at", iso.format(Date()))
-        val r = c().update(Tables.ADMIN, mapOf("key" to "eq.$key"), row)
-        if (!r.ok) c().insert(Tables.ADMIN, row)
-        adminCache[key] = value
-        adminCacheFlow.value = adminCache.toMap()
-        LogBus.log("admin.save", key)
+        val r = c().upsert(Tables.ADMIN, row, "key")
+        if (r.ok) {
+            adminCache[key] = value
+            adminCacheFlow.value = adminCache.toMap()
+            LogBus.log("admin.save", key)
+        } else {
+            LogBus.log("admin.save", "nie zapisałem „$key”: ${r.error}", "warn")
+        }
+        return r.ok
     }
 
     // ── Pamięć długotrwała ────────────────────────────────────────────────
 
-    suspend fun upsertFact(key: String, value: String, category: String = "ogólne") {
-        if (!available) return
+    /** @return true, gdy fakt faktycznie został zapisany (inaczej – do kolejki). */
+    suspend fun upsertFact(key: String, value: String, category: String = "ogólne"): Boolean {
+        if (!available) return false
         val row = JSONObject().apply {
             put("key", key)
             put("value", value)
             put("category", category)
             put("updated_at", iso.format(Date()))
         }
-        val r = c().update(Tables.MEMORY, mapOf("key" to "eq.$key"), row)
-        if (!r.ok) c().insert(Tables.MEMORY, row)
+        val r = c().upsert(Tables.MEMORY, row, "key")
+        if (!r.ok) LogBus.log("memory.save", "nie zapisałem faktu: ${r.error}", "warn")
+        return r.ok
     }
 
     suspend fun loadFacts(limit: Int = 60): List<JSONObject> =
@@ -230,15 +251,15 @@ object SupabaseHub {
 
     // ── Powiadomienia o akcjach (tabela system_logs / errors) ─────────────
 
-    suspend fun insertLog(entry: LogBus.LogEntry) {
-        if (!available) return
+    suspend fun insertLog(entry: LogBus.LogEntry): Boolean {
+        if (!available) return false
         val row = JSONObject().apply {
             put("ts", entry.ts)
             put("action", entry.action)
             put("detail", entry.detail)
             put("status", entry.status)
         }
-        c().insert(entry.table, row)
+        return c().insert(entry.table, row).ok
     }
 
     suspend fun reportError(tag: String, t: Throwable) {
@@ -261,8 +282,11 @@ object SupabaseHub {
 
     suspend fun saveRule(rule: JSONObject) {
         if (!available) return
-        if (rule.has("id")) {
-            c().update(Tables.RULES, mapOf("id" to "eq.${rule.getInt("id")}"), rule)
+        val idValue = rule.opt("id")
+        // id bywa liczbą albo łańcuchem (zależnie od tego, jak powstał wiersz)
+        val hasId = idValue != null && idValue.toString().isNotBlank() && idValue.toString() != "null"
+        if (hasId) {
+            c().update(Tables.RULES, mapOf("id" to "eq.$idValue"), rule)
         } else {
             c().insert(Tables.RULES, rule)
         }

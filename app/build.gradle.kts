@@ -12,8 +12,10 @@ android {
         applicationId = "dev.nixi"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        // versionCode trzymamy rosnąco, żeby telefon widział aktualizacje
+        // (nie musimy jej podnosić przy każdym commicie — tylko przy wydaniu).
+        versionCode = 8
+        versionName = "1.3.3"
         vectorDrawables { useSupportLibrary = true }
     }
 
@@ -42,8 +44,25 @@ android {
         compose = true
     }
 
+    testOptions {
+        // testy jednostkowe nie potrzebują emulatora; nie wywalamy ich na
+        // "not mocked" przy okazjonalnym dotknięciu klasy z android.jar
+        unitTests.isReturnDefaultValues = true
+    }
+
     packaging {
         resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+    }
+}
+
+// Logowanie testów: bez tego komunikat nieudanej asercji (np. statystyki
+// detektora) nie trafia do logu CI i nie da się zdiagnozować, co zawiodło.
+// Przydało się przy strojeniu wake-worda — zostawiamy na stałe.
+tasks.withType<Test>().configureEach {
+    testLogging {
+        events("failed", "skipped")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showStandardStreams = true
     }
 }
 
@@ -63,4 +82,6 @@ dependencies {
 
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.okhttp)
+
+    testImplementation(libs.junit)
 }

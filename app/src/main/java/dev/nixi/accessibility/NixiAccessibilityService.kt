@@ -20,7 +20,48 @@ class NixiAccessibilityService : AccessibilityService() {
     companion object {
         @Volatile var instance: NixiAccessibilityService? = null
 
+        /** Usługa działa i jest podłączona (można nią sterować ekranem). */
         fun isAvailable(): Boolean = instance != null
+
+        /**
+         * Czy usługa jest WŁĄCZONA w ustawieniach systemowych.
+         *
+         * To inna informacja niż [isAvailable]: system potrafi trzymać usługę
+         * na liście, ale jeszcze jej nie podłączyć (albo już odłączyć po
+         * ubiciu procesu). Wcześniej aplikacja pokazywała „wyłączone” w obu
+         * przypadkach — i wyglądało to jak błąd, choć usługa była włączona.
+         */
+        fun isEnabledInSystem(context: android.content.Context): Boolean {
+            val expected = context.packageName + "/" + NixiAccessibilityService::class.java.name
+            val enabled = try {
+                android.provider.Settings.Secure.getString(
+                    context.contentResolver,
+                    android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+                ).orEmpty()
+            } catch (_: Throwable) {
+                ""
+            }
+            if (enabled.isNotBlank()) {
+                // system bywa zapisany skrótem (pakiet/.klasa)
+                val short = context.packageName + "/." + NixiAccessibilityService::class.java.simpleName
+                enabled.split(':').forEach { entry ->
+                    if (entry.equals(expected, ignoreCase = true) ||
+                        entry.equals(short, ignoreCase = true)
+                    ) return true
+                }
+                // lista jest znana i naszej usługi w niej nie ma — koniec
+                return false
+            }
+            // nie udało się odczytać listy (rzadkie) — zostaje sam przełącznik
+            return try {
+                android.provider.Settings.Secure.getInt(
+                    context.contentResolver,
+                    android.provider.Settings.Secure.ACCESSIBILITY_ENABLED
+                ) == 1
+            } catch (_: Throwable) {
+                false
+            }
+        }
     }
 
     override fun onServiceConnected() {
@@ -43,9 +84,11 @@ class NixiAccessibilityService : AccessibilityService() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    /** Zwraca true, gdy gest został wykonany. */
+    /** Jedna gest naraz — w tym samym momencie nie da się wysłać dwóch. */
+    @Volatile private var gestureBusy = false
+
+    /** Zwraca true, gdy gest został przyjęty do wykonania. */
     fun tap(xPx: Float, yPx: Float): Boolean {
-        val svc = instance ?: return false
         val path = Path().apply {
             moveTo(xPx, yPx)
             lineTo(xPx + 0.1f, yPx + 0.1f)
@@ -87,18 +130,30 @@ class NixiAccessibilityService : AccessibilityService() {
 
     private fun gesture(stroke: GestureDescription.StrokeDescription, name: String): Boolean {
         val svc = instance ?: return false
-        val desc = GestureDescription.Builder().addStroke(stroke).build()
-        var ok = false
-        svc.dispatchGesture(desc, object : GestureResultCallback() {
-            override fun onCompleted(gestureDescription: GestureDescription?) {
-                ok = true
-            }
+        if (gestureBusy || !svc.dispatchGesture(
+                GestureDescription.Builder().addStroke(stroke).build(),
+                object : GestureResultCallback() {
+                    override fun onCompleted(gestureDescription: GestureDescription?) {
+                        gestureBusy = false
+                        LogBus.log("accessibility.gesture", "$name: wykonano")
+                    }
 
-            override fun onCancelled(gestureDescription: GestureDescription?) {
-                ok = false
-            }
-        }, mainHandler)
-        // dispatchGesture nie ma synchronicznego wynik; dajemy krótki budżet
+                    override fun onCancelled(gestureDescription: GestureDescription?) {
+                        gestureBusy = false
+                        // np. użytkownik dotknął ekranu w trakcie gestu
+                        LogBus.log("accessibility.gesture", "$name: przerwano", "warn")
+                    }
+                },
+                mainHandler
+            )
+        ) {
+            return false
+        }
+        // dispatchGesture() zwraca false, gdy usługa nie może przyjąć gestu
+        // (np. trwa inny gest) — wcześniej zwracaliśmy tu zawsze true, więc
+        // model dostawał potwierdzenie nawet, gdy nic się nie stało.
+        gestureBusy = true
+        mainHandler.postDelayed({ gestureBusy = false }, 2000)
         return true
     }
 }

@@ -29,6 +29,17 @@ object LocalStore {
         get() = prefs.getString("memory_model", "gemini-3.8-flash") ?: "gemini-3.8-flash"
         set(v) = prefs.edit().putString("memory_model", v.trim()).apply()
 
+    /**
+     * Który wariant wiadomości `setup` rozmawia z Gemini (patrz
+     * [dev.nixi.live.LiveSessionService.buildSetup]): 0 = wszystko w
+     * `generationConfig` (referencja API), 1 = na najwyższym poziomie
+     * (przewodnik WebSocket), 2 = minimalny. Aplikacja dopasowuje go sama
+     * i zapisuje ten, który zadziałał, żeby nie powtarzać nieudanych prób.
+     */
+    var liveSetupVariant: Int
+        get() = prefs.getInt("live_setup_variant", 0)
+        set(v) = prefs.edit().putInt("live_setup_variant", v).apply()
+
     // ── Supabase ───────────────────────────────────────────────────────────
     var supabaseUrl: String
         get() = prefs.getString("supabase_url", "") ?: ""
@@ -37,6 +48,16 @@ object LocalStore {
     var supabaseKey: String
         get() = prefs.getString("supabase_key", "") ?: ""
         set(v) = prefs.edit().putString("supabase_key", v.trim()).apply()
+
+    /**
+     * Opcjonalny „personal access token” Supabase (sbp_…) — tylko do
+     * automatycznego tworzenia i aktualizowania tabel. Klucz anon nie ma
+     * prawa zmieniać struktury bazy (to zabezpieczenie Supabase), więc bez
+     * tego tokenu aplikacja przygotowuje SQL i prowadzi Cię do SQL Editora.
+     */
+    var supabasePat: String
+        get() = prefs.getString("supabase_pat", "") ?: ""
+        set(v) = prefs.edit().putString("supabase_pat", v.trim()).apply()
 
     // ── Głos / sesja ───────────────────────────────────────────────────────
     var voiceName: String
@@ -71,6 +92,15 @@ object LocalStore {
     var wakeTemplates: String
         get() = prefs.getString("wake_templates", "") ?: ""
         set(v) = prefs.edit().putString("wake_templates", v).apply()
+
+    /**
+     * True, gdy zapisany szablon pochodzi ze starszego detektora (inne cechy)
+     * — wtedy nasłuch działa, ale nic nie rozpozna, dopóki użytkownik nie
+     * nagra frazy ponownie. Pokazujemy to na ekranie głównym.
+     */
+    var wakeNeedsEnroll: Boolean
+        get() = prefs.getBoolean("wake_needs_enroll", false)
+        set(v) = prefs.edit().putBoolean("wake_needs_enroll", v).apply()
 
     var dingEnabled: Boolean
         get() = prefs.getBoolean("ding_enabled", true)
@@ -119,6 +149,15 @@ object LocalStore {
         get() = prefs.getBoolean("onboarded", false)
         set(v) = prefs.edit().putBoolean("onboarded", v).apply()
 
+    /** Cache persona + profilu użytkownika (żeby sesja startowała od razu). */
+    var promptStatic: String
+        get() = prefs.getString("prompt_static", "") ?: ""
+        set(v) = prefs.edit().putString("prompt_static", v).apply()
+
+    var promptStaticAt: Long
+        get() = prefs.getLong("prompt_static_at", 0L)
+        set(v) = prefs.edit().putLong("prompt_static_at", v).apply()
+
     var knownTables: String
         get() = prefs.getString("known_tables", "") ?: ""
         set(v) = prefs.edit().putString("known_tables", v).apply()
@@ -139,6 +178,35 @@ object LocalStore {
     var lastSessionDuration: Long
         get() = prefs.getLong("last_session_dur", 0L)
         set(v) = prefs.edit().putLong("last_session_dur", v).apply()
+
+    // ── Diagnostyka ostatniej sesji („NIXI nie odpowiada”) ─────────────────
+    // Zapisujemy suche fakty, żeby dało się je pokazać w aplikacji (karta
+    // „Rozmowa z Gemini”) i w samokontroli — bez zgadywania, co się stało.
+
+    /** Dlaczego zakończyła się ostatnia rozmowa (np. „bezczynność (5 min)”). */
+    var lastSessionReason: String
+        get() = prefs.getString("last_session_reason", "") ?: ""
+        set(v) = prefs.edit().putString("last_session_reason", v).apply()
+
+    /** Ile klatek audio NIXI wysłała do modelu w ostatniej sesji. */
+    var lastSessionAudioChunks: Int
+        get() = prefs.getInt("last_session_chunks", 0)
+        set(v) = prefs.edit().putInt("last_session_chunks", v).apply()
+
+    /** Ile razy model odpowiedział dźwiękiem w ostatniej sesji. */
+    var lastSessionAudioReplies: Int
+        get() = prefs.getInt("last_session_replies", 0)
+        set(v) = prefs.edit().putInt("last_session_replies", v).apply()
+
+    /** Który wariant konfiguracji sesji zadziałał (0/1/2, -1 = żaden). */
+    var lastSessionVariant: Int
+        get() = prefs.getInt("last_session_variant", -1)
+        set(v) = prefs.edit().putInt("last_session_variant", v).apply()
+
+    /** Czy w ostatniej sesji serwer potwierdził gotowość (setupComplete). */
+    var lastSessionSetupOk: Boolean
+        get() = prefs.getBoolean("last_session_setup_ok", false)
+        set(v) = prefs.edit().putBoolean("last_session_setup_ok", v).apply()
 
     fun clearAllData() {
         prefs.edit().clear().apply()

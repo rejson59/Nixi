@@ -3,7 +3,6 @@ package dev.nixi.audio
 import android.annotation.SuppressLint
 import android.media.AudioAttributes
 import android.media.AudioFormat
-import android.media.AudioManager
 import android.media.AudioTrack
 import dev.nixi.NixiState
 import dev.nixi.store.LocalStore
@@ -15,13 +14,21 @@ import kotlin.math.sqrt
 /**
  * Odtwarzacz głosu NIXI (24 kHz mono LINEAR16 — format wyjścia Gemini Live).
  * RMS odtwarzanych danych zasila skalę kuli: głośniej => większa kula.
+ *
+ * Stabilność: wątek odtwarzania łapie `InterruptedException` (koniec sesji
+ * NIE może wywalić procesu) i zawsze zwalnia AudioTrack.
  */
 class AudioPlayer {
 
     private var track: AudioTrack? = null
-    private val queue = ArrayBlockingQueue<ByteArray>(128)
+    private val queue = ArrayBlockingQueue<ByteArray>(64)
+
     @Volatile private var alive = false
-    private var worker: Thread? = null
+
+    @Volatile private var worker: Thread? = null
+
+    /** Kiedy ostatnio poszły realne bajty do AudioTrack (bramka półduplex). */
+    @Volatile private var lastWriteAt = 0L
 
     fun start() {
         if (alive) return
@@ -29,92 +36,136 @@ class AudioPlayer {
         val minBuf = AudioTrack.getMinBufferSize(
             24000, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT
         )
-        val t = AudioTrack.Builder()
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ASSISTANT)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                    .build()
-            )
-            .setAudioFormat(
-                AudioFormat.Builder()
-                    .setSampleRate(24000)
-                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                    .build()
-            )
-            .setBufferSizeInBytes(maxOf(minBuf * 2, 96000))
-            .setTransferMode(AudioTrack.MODE_STREAM)
-            .build()
-        try {
-            t.playbackParams = android.media.PlaybackParams().setSpeed(LocalStore.playRate)
-        } catch (_: Exception) {
+        val t = try {
+            AudioTrack.Builder()
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ASSISTANT)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build()
+                )
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setSampleRate(24000)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .build()
+                )
+                .setBufferSizeInBytes(maxOf(minBuf * 2, 96000))
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .build()
+        } catch (t: Throwable) {
+            LogBus.log("audio.player", "nie mogę utworzyć AudioTrack: ${t.message}", "error")
+            alive = false
+            return
         }
-        t.setVolume(LocalStore.outputVolume)
-        t.play()
+        runCatching { t.playbackParams = android.media.PlaybackParams().setSpeed(LocalStore.playRate) }
+        runCatching { t.setVolume(LocalStore.outputVolume.coerceIn(0f, 1f)) }
+        try {
+            t.play()
+        } catch (t2: Throwable) {
+            LogBus.log("audio.player", "play() nie ruszył: ${t2.message}", "error")
+            runCatching { t.release() }
+            alive = false
+            return
+        }
         track = t
-        worker = Thread({ loop(t) }, "nixi-player").apply { start() }
+        worker = Thread({ loop(t) }, "nixi-player").apply {
+            isDaemon = true
+            start()
+        }
         LogBus.log("audio.player", "start")
     }
 
-    /** Zapis brazy PCM 24 kHz (base64 -> bajty). Nie blokuje. */
+    /** Zapis bajtów PCM 24 kHz. Nie blokuje. */
     fun write(bytes: ByteArray) {
-        if (alive) {
-            // nie pozwól, by kolejka urosła w nieskończoność (np. 429 / zator)
-            if (!queue.offer(bytes)) {
-                runCatching { queue.poll(10, TimeUnit.MILLISECONDS) }
-                queue.offer(bytes)
-            }
+        if (!alive || bytes.isEmpty()) return
+        // nie pozwól, by kolejka urosła w nieskończoność (np. 429 / zator)
+        if (!queue.offer(bytes)) {
+            queue.poll()
+            queue.offer(bytes)
         }
     }
 
     /** Przerwanie (barge-in): wyrzuca bufor i ciszy głośnik. */
     fun flush() {
         queue.clear()
-        try {
-            track?.flush()
-        } catch (_: Exception) {
-        }
+        runCatching { track?.pause() }
+        runCatching { track?.flush() }
+        runCatching { track?.play() }
+        lastWriteAt = 0L
         NixiState.speakLevel.value = 0f
     }
 
     fun stop() {
+        if (!alive && track == null) return
         alive = false
-        worker?.interrupt()
-        worker = null
         val t = track
         track = null
+        // NIE przerywamy wątku: blokujący write() zwolni się po stop()
         runCatching { t?.stop() }
         runCatching { t?.release() }
+        worker = null
+        queue.clear()
+        lastWriteAt = 0L
         NixiState.speakLevel.value = 0f
         LogBus.log("audio.player", "stop")
     }
 
-    @SuppressLint("WrongConstant")
+    fun isRunning(): Boolean = alive
+
+    /**
+     * Czy NIXI właśnie mówi. `queue` łapie dźwięk jeszcze nieodtworzony,
+     * `lastWriteAt` — ogon po ostatnim zapisie (bufor AudioTrack).
+     */
+    fun isPlaying(): Boolean =
+        alive && (queue.isNotEmpty() || System.currentTimeMillis() - lastWriteAt < 250)
+
     private fun loop(t: AudioTrack) {
-        while (alive) {
-            val bytes = queue.poll(300, TimeUnit.MILLISECONDS) ?: continue
-            if (bytes.isEmpty()) continue
-            // zapisz w pętli, bo write() może wrócić wcześniej (stare API)
-            var off = 0
-            while (off < bytes.size && alive) {
-                val written = t.write(bytes, off, bytes.size - off)
-                if (written > 0) off += written
+        try {
+            while (alive) {
+                val bytes = try {
+                    queue.poll(300, TimeUnit.MILLISECONDS)
+                } catch (_: InterruptedException) {
+                    // gdyby jakikolwiek kod przerwał wątek — kończymy spokojnie
+                    return
+                } ?: continue
+                if (bytes.isEmpty() || !alive) continue
+                var off = 0
+                while (off < bytes.size && alive) {
+                    val written = try {
+                        t.write(bytes, off, bytes.size - off)
+                    } catch (_: Throwable) {
+                        return
+                    }
+                    if (written > 0) {
+                        off += written
+                        lastWriteAt = System.currentTimeMillis()
+                    } else break
+                }
+                NixiState.speakLevel.value = rmsLevel(bytes)
             }
-            val level = rmsLevel(bytes)
-            NixiState.speakLevel.value = level
+        } catch (t2: Throwable) {
+            LogBus.log("audio.player", "pętla odtwarzania: ${t2.message}", "warn")
+        } finally {
+            if (alive) {
+                // wątek wyszedł sam — oznacz stan, żeby nikt nie czekał na dźwięk
+                alive = false
+            }
+            NixiState.speakLevel.value = 0f
         }
     }
 
+    @SuppressLint("WrongConstant")
     private fun rmsLevel(bytes: ByteArray): Float {
         var sum = 0L
         var i = 0
         while (i + 1 < bytes.size) {
-            val s = (bytes[i].toInt() or (bytes[i + 1].toInt() shl 8))
+            val s = (bytes[i].toInt() and 0xFF) or (bytes[i + 1].toInt() shl 8)
             sum += (s * s).toLong()
             i += 2
         }
         val count = (bytes.size / 2).coerceAtLeast(1)
-        return (sqrt(sum.toDouble() / count) / 32768.0 * 5.0).toFloat()
+        return (sqrt(sum.toDouble() / count) / 32768.0 * 5.0).toFloat().coerceIn(0f, 1f)
     }
 }

@@ -6,6 +6,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -44,13 +46,22 @@ fun NixiOrb(
     modifier: Modifier = Modifier,
 ) {
     var t by remember { mutableFloatStateOf(0f) }
+    // Animacja zsynchronizowana z odświeżaniem ekranu (withFrameNanos), ale
+    // przeliczana ~30x/s (w spoczynku ~15x/s) — na 120 Hz ekranie jest płynniej,
+    // a baterii idzie mniej niż przy ślepym delay(33).
+    val currentState by rememberUpdatedState(state)
     LaunchedEffect(Unit) {
-        var last = System.nanoTime()
+        var last = withFrameNanos { it }
+        var acc = 0f
         while (true) {
-            kotlinx.coroutines.delay(33)
-            val now = System.nanoTime()
-            t += (now - last) / 1e9f
+            val now = withFrameNanos { it }
+            acc += (now - last) / 1e9f
             last = now
+            val cadence = if (currentState == NixiState.OrbState.IDLE) 0.066f else 0.033f
+            if (acc >= cadence) {
+                t += acc
+                acc = 0f
+            }
         }
     }
 

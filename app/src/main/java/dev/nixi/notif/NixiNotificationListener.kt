@@ -30,14 +30,25 @@ class NixiNotificationListener : NotificationListenerService() {
 
     private val rules = mutableListOf<JSONObject>()
 
+    private var rulesJob: kotlinx.coroutines.Job? = null
+
     override fun onCreate() {
         super.onCreate()
         instance = this
         NixiApp.scope.launch { refreshRules() }
+        // Reguły ciche żyją w Supabase — odświeżamy je także w tle, bo usługa
+        // bywa jedynym „żywym" komponentem NIXI przez wiele godzin.
+        rulesJob = NixiApp.scope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(10 * 60 * 1000L)
+                runCatching { refreshRules() }
+            }
+        }
     }
 
     override fun onDestroy() {
         if (instance === this) instance = null
+        rulesJob?.cancel()
         super.onDestroy()
     }
 
@@ -92,9 +103,11 @@ class NixiNotificationListener : NotificationListenerService() {
                         put("title", "Zastępstwo: $subject")
                         put("notes", (e.optString("notes", "") + " [auto NIXI: $text]").trim())
                     }
+                    val id = e.opt("id")?.toString()
+                    if (id.isNullOrBlank()) continue
                     val r = SupabaseHub.updateRow(
                         dev.nixi.db.Tables.CALENDAR,
-                        mapOf("id" to "eq.${e.getInt("id")}"), row
+                        mapOf("id" to "eq.$id"), row
                     )
                     if (r.ok) changed++
                 }

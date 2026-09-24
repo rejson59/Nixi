@@ -111,6 +111,8 @@ object PostSessionMemory {
 
         val parsed = parseJsonLoose(text) ?: return
         var factsSaved = 0
+        var queued = 0
+        val keepIfOffline = SupabaseHub.isConfigured()
         val facts = parsed.optJSONArray("facts")
         if (facts != null) {
             for (i in 0 until facts.length()) {
@@ -118,8 +120,19 @@ object PostSessionMemory {
                 val key = f.optString("key").trim()
                 val value = f.optString("value").trim()
                 if (key.isBlank() || value.isBlank()) continue
-                SupabaseHub.upsertFact(key, value, f.optString("category", "ogólne"))
-                factsSaved++
+                val category = f.optString("category", "ogólne")
+                val saved = runCatching { SupabaseHub.upsertFact(key, value, category) }.getOrDefault(false)
+                if (saved) {
+                    factsSaved++
+                } else if (keepIfOffline) {
+                    // brak sieci: zapisujemy lokalnie i wyślemy, gdy wróci internet
+                    dev.nixi.db.OfflineQueue.enqueue(
+                        context,
+                        dev.nixi.db.OfflineQueue.TYPE_FACT,
+                        JSONObject().put("key", key).put("value", value).put("category", category)
+                    )
+                    queued++
+                }
             }
         }
         val summary = parsed.optString("summary").trim()
@@ -130,7 +143,13 @@ object PostSessionMemory {
                 put("duration_sec", durationSec)
                 put("created_at", SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).format(Date()))
             }
-            SupabaseHub.c().insert(Tables.RECENT, row)
+            val r = runCatching { SupabaseHub.c().insert(Tables.RECENT, row) }.getOrNull()
+            if ((r == null || !r.ok) && keepIfOffline) {
+                dev.nixi.db.OfflineQueue.enqueue(
+                    context, dev.nixi.db.OfflineQueue.TYPE_CONVERSATION, row
+                )
+                queued++
+            }
         }
         if (factsSaved > 0) {
             ActionNotifier.notify(
@@ -139,6 +158,13 @@ object PostSessionMemory {
                 short = true
             )
             LogBus.log("memory.post", "faktów: $factsSaved, podsumowanie: ${summary.take(80)}")
+        } else if (queued > 0) {
+            ActionNotifier.notify(
+                context, "NIXI: pamięć",
+                "Nie ma teraz połączenia — zapamiętam tę rozmowę, gdy internet wróci.",
+                short = true
+            )
+            LogBus.log("memory.post", "do kolejki: $queued (brak sieci)", "warn")
         } else {
             LogBus.log("memory.post", "bez nowych faktów")
         }

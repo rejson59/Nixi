@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import dev.nixi.ui.MainActivity
+import dev.nixi.util.LogBus
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -128,6 +129,13 @@ object ActionNotifier {
             context, 77, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        if (!canUseFullScreenIntent()) {
+            LogBus.log(
+                "wake.fsi",
+                "brak zgody na pełny ekran — pokażę heads-up (Ustawienia → Wezwania na pełnym ekranie)",
+                "warn"
+            )
+        }
         val n = Notification.Builder(context, CH_WAKE)
             .setSmallIcon(android.R.drawable.stat_notify_chat)
             .setContentTitle("NIXI słucha")
@@ -141,8 +149,39 @@ object ActionNotifier {
         runCatching { nm.notify(7001, n) }
     }
 
+    /** Powiadomienie z akcją użytkownika (np. wznowienie nasłuchu z tła). */
+    fun urgentAction(
+        context: Context,
+        title: String,
+        text: String,
+        action: PendingIntent,
+        id: Int,
+        channel: String = CH_ACTIONS,
+    ) {
+        ensureChannels()
+        val n = Notification.Builder(context, channel)
+            .setSmallIcon(android.R.drawable.stat_notify_chat)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(Notification.BigTextStyle().bigText(text))
+            .setAutoCancel(true)
+            .setOngoing(false)
+            .setContentIntent(action)
+            .setCategory(Notification.CATEGORY_STATUS)
+            .setVisibility(Notification.VISIBILITY_PRIVATE)
+            .build()
+        runCatching { nm.notify(id, n) }
+    }
+
+    /** Czy system pozwoli na pełnoekranowe wezwanie (Android 14+). */
+    fun canUseFullScreenIntent(): Boolean = try {
+        if (Build.VERSION.SDK_INT >= 34) nm.canUseFullScreenIntent() else true
+    } catch (_: Throwable) {
+        false
+    }
+
     /** Powiadomienie przypomnienia (wysoka ważność, dźwięk). */
-    fun reminder(context: Context, id: Long, title: String, text: String) {
+    fun reminder(context: Context, id: Int, title: String, text: String) {
         ensureChannels()
         val builder = Notification.Builder(context, CH_REMINDER)
             .setSmallIcon(android.R.drawable.stat_notify_chat)
@@ -151,6 +190,6 @@ object ActionNotifier {
             .setAutoCancel(true)
             .setCategory(Notification.CATEGORY_REMINDER)
             .setContentIntent(contentIntent(context))
-        runCatching { nm.notify(id.toInt(), builder.build()) }
+        runCatching { nm.notify(id, builder.build()) }
     }
 }

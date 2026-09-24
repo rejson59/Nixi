@@ -59,7 +59,37 @@ class GeminiLiveClient(
     @Volatile var closedByUs = false
         private set
 
+    /**
+     * Numer generacji gniazda. Po wznowieniu sesji stare gniazdo jeszcze przez
+     * chwilę woła onFailure/onClosed — bez tej bariery odbieralibyśmy je jako
+     * "świeży" błąd i wpadli w podwójne reconnecty.
+     */
+    @Volatile private var socketGen = 0
+
+    /** Uchwyt wznowienia sesji (sessionResumptionUpdate.newHandle). */
+    @Volatile var resumptionHandle: String? = null
+        private set
+
+    /** Ile czasu serwer daje na wznowienie (goAway.timeLeft, ms). */
+    @Volatile var goAwayMillis: Long = 0
+        private set
+
+    /** Ile razy łączyliśmy się w ramach tej sesji (diagnostyka). */
+    @Volatile var connectCount = 0
+        private set
+
+    /** Wznawia połączenie (np. po goAway albo zerwaniu sieci). */
+    fun reconnect(setup: JSONObject) {
+        closedByUs = false
+        open.set(false)
+        runCatching { ws?.cancel() }
+        ws = null
+        connect(setup)
+    }
+
     fun connect(setup: JSONObject) {
+        val myGen = ++socketGen
+        connectCount++
         val url = "wss://generativelanguage.googleapis.com/ws/google.ai." +
             "generativelanguage.v1beta.GenerativeService.BidiGenerateContent" +
             "?key=${java.net.URLEncoder.encode(apiKey, "UTF-8")}"
@@ -76,12 +106,20 @@ class GeminiLiveClient(
                     handleMessage(text)
                 }
 
+                // Gemini Live potrafi wysłać JSON jako ramkę binarną (np. przy dużych
+                // odpowiedziach z inlineData) — obsługujemy oba warianty.
+                override fun onMessage(webSocket: WebSocket, bytes: okio.ByteString) {
+                    handleMessage(bytes.utf8())
+                }
+
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                    if (myGen != socketGen) return // stare gniazdo — ignoruj
                     open.set(false)
                     listener.onClosed(code, reason)
                 }
 
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                    if (myGen != socketGen) return // stare gniazdo — ignoruj
                     open.set(false)
                     val code = response?.code ?: -1
                     LogBus.log("live.ws", "failure: ${t.message}", "error")
@@ -106,7 +144,19 @@ class GeminiLiveClient(
             listener.onSetupComplete()
             return
         }
+        val sru = msg.optJSONObject("sessionResumptionUpdate")
+        if (sru != null) {
+            if (sru.optBoolean("resumable", true)) {
+                val h = sru.optString("newHandle", "")
+                if (h.isNotBlank()) {
+                    resumptionHandle = h
+                    LogBus.log("live.resume", "mam uchwyt wznowienia")
+                }
+            }
+            return
+        }
         if (msg.has("goAway")) {
+            goAwayMillis = msg.optJSONObject("goAway")?.optLong("timeLeft", 0) ?: 0
             listener.onGoAway()
             return
         }
@@ -192,6 +242,7 @@ class GeminiLiveClient(
     }
 
     fun sendAudio(base64Pcm: String) {
+        sentAudioChunks++
         send(
             JSONObject().put("realtimeInput", JSONObject().put("audio",
                 JSONObject().put("data", base64Pcm)
@@ -215,26 +266,23 @@ class GeminiLiveClient(
         send(JSONObject().put("toolResponse", JSONObject().put("functionResponses", functionResponses)))
     }
 
-    fun sendSessionUpdate(update: JSONObject) {
-        send(JSONObject().put("sessionUpdate", update))
-    }
-
-    fun interrupt() {
-        send(JSONObject().put("interrupt", JSONObject()))
-    }
-
-    fun goAway() {
-        if (open.compareAndSet(true, false)) {
-            send(JSONObject().put("goAway", JSONObject()))
-        }
-    }
-
+    /**
+     * Uwaga: `interrupt`, `goAway` i `sessionUpdate` NIE są komunikatami
+     * klienta w BidiGenerateContent — wysyłanie ich kończyło się błędem
+     * protokołu i zrywało sesję. Przerwanie odpowiedzi modelu robi się
+     * lokalnie (patrz AudioPlayer.flush) oraz przez automatyczne VAD.
+     * Poprawnym zakończeniem jest [close].
+     */
     fun close() {
         closedByUs = true
         open.set(false)
         runCatching { ws?.close(1000, "client close") }
         runCatching { ws = null }
     }
+
+    /** Ile bajtów/wiadomości wysłano (diagnostyka). */
+    @Volatile var sentAudioChunks = 0
+        private set
 
     fun shutdown() {
         close()
