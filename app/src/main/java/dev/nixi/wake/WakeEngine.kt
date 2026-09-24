@@ -113,7 +113,12 @@ class WakeEngine {
     private var tailFrames = 0
     private var silenceTick = 0
 
-    private var lastHitAt = 0L
+    // Start = -COOLDOWN_MS, a nie 0: czas audio zaczyna się od zera przy
+    // włączeniu nasłuchu, więc „zero" znaczyłoby, że przez pierwsze 12 sekund
+    // po starcie usługi detektor jest w kwarantannie i fraza nigdy nie zadziała.
+    // (Znalazł to test kaskady — na telefonie objawiałoby się to jako „działa
+    // dopiero po chwili od włączenia aplikacji".)
+    private var lastHitAt = -COOLDOWN_MS
     private var lastStage2At = 0L
     private var lastCandidateAt = 0L
     private var stage2Count = 0
