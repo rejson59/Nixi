@@ -129,7 +129,7 @@
 <body>
   <h1>NIXI — nowy wygląd (makieta)</h1>
   <p class="lead">
-    Tak będzie wyglądać aplikacja po tej zmianie. To <b>makieta w przeglądarce</b> (rysunek, nie zrzut z telefonu),
+    Tak wygląda aplikacja po zmianach z tej i poprzedniej rundy. To <b>makieta w przeglądarce</b> (rysunek, nie zrzut z telefonu),
     ale kolory, kształty, przezroczystości i układ są te same, co w kodzie. Zauważ, że po wywołaniu NIXI
     <b>ekran pod spodem pozostaje w pełni widoczny</b> — nie ma żadnego przyciemnienia, czytelność daje samo szkło.
   </p>
@@ -229,6 +229,100 @@
         </div>
       </div>
       <div class="caption">Ekran główny w tym samym szklanym stylu</div>
+    </div>
+
+    <!-- 4. tabele -->
+    <div>
+      <div class="phone">
+        <div class="screen">
+          <div class="grad"></div>
+          <div class="wrap">
+            <div style="display:flex;align-items:flex-start;gap:10px">
+              <div style="flex:1">
+                <div class="h1">Tabele</div>
+                <div class="h2s">Widzę 9 tabel (odkryto 9).</div>
+              </div>
+              <div style="border:1px solid var(--edge2);border-radius:999px;padding:9px 14px;font-size:11.5px;color:#fff;background:linear-gradient(90deg,rgba(143,111,255,.35),rgba(91,61,245,.25))">Odkryj ponownie</div>
+            </div>
+            <div class="panel glass" style="padding:12px 14px;margin-bottom:8px">
+              <div style="display:flex;align-items:center;gap:8px">
+                <div style="flex:1;font-weight:600;font-size:14px">conversations</div>
+                <span style="width:22px;height:20px;border-radius:999px;background:linear-gradient(90deg,var(--purple),var(--purpleDeep));color:#fff;font-size:10px;font-weight:700;display:grid;place-items:center">C</span>
+                <span style="width:22px;height:20px;border-radius:999px;background:linear-gradient(90deg,var(--purple),var(--purpleDeep));color:#fff;font-size:10px;font-weight:700;display:grid;place-items:center">E</span>
+                <span style="width:22px;height:20px;border-radius:999px;background:rgba(255,255,255,.12);color:var(--dim);font-size:10px;font-weight:700;display:grid;place-items:center">D</span>
+              </div>
+              <div class="hint" style="margin-top:4px">id, summary, topics, created_at</div>
+            </div>
+            <div class="panel glass" style="padding:12px 14px;margin-bottom:8px">
+              <div style="display:flex;align-items:center;gap:8px">
+                <div style="flex:1;font-weight:600;font-size:14px">reminders</div>
+                <span style="width:22px;height:20px;border-radius:999px;background:linear-gradient(90deg,var(--purple),var(--purpleDeep));color:#fff;font-size:10px;font-weight:700;display:grid;place-items:center">C</span>
+                <span style="width:22px;height:20px;border-radius:999px;background:linear-gradient(90deg,var(--purple),var(--purpleDeep));color:#fff;font-size:10px;font-weight:700;display:grid;place-items:center">E</span>
+                <span style="width:22px;height:20px;border-radius:999px;background:linear-gradient(90deg,var(--purple),var(--purpleDeep));color:#fff;font-size:10px;font-weight:700;display:grid;place-items:center">D</span>
+              </div>
+              <div class="hint" style="margin-top:4px">id, title, due_at, repeat</div>
+            </div>
+            <div style="display:flex;gap:10px;margin-top:2px">
+              <div style="flex:1;text-align:center;border:1px solid var(--edge2);border-radius:999px;padding:11px 0;font-size:12px;color:var(--text);background:rgba(255,255,255,.05)">Nowa tabela</div>
+              <div style="flex:1;text-align:center;border:1px solid var(--edge2);border-radius:999px;padding:11px 0;font-size:12px;color:var(--text);background:rgba(255,255,255,.05)">Nowa kolumna</div>
+            </div>
+            <div class="hint" style="margin-top:12px">DDL: NIXI generuje SQL, Ty wklejasz go w SQL Editorze Supabase — panel z gotowym kodem pojawia się na górze ekranu.</div>
+          </div>
+        </div>
+      </div>
+      <div class="caption">Tabele: dostęp NIXI (C/E/D) widoczny na pierwszy rzut oka</div>
+    </div>
+
+    <!-- 5. logi -->
+    <div>
+      <div class="phone">
+        <div class="screen">
+          <div class="grad"></div>
+          <div class="wrap">
+            <div style="display:flex;align-items:flex-start;gap:10px">
+              <div style="flex:1">
+                <div class="h1">Logi</div>
+                <div class="h2s">Co NIXI robiła i co się nie udało — z bazy i z pamięci.</div>
+              </div>
+              <div style="border:1px solid var(--edge2);border-radius:999px;padding:9px 14px;font-size:11.5px;color:#fff;background:linear-gradient(90deg,rgba(143,111,255,.35),rgba(91,61,245,.25))">Odśwież</div>
+            </div>
+            <div class="tabs" style="margin:12px 0 10px">
+              <div class="tab on">Wszystkie</div>
+              <div class="tab">Akcje</div>
+              <div class="tab">Błędy</div>
+            </div>
+            <div class="panel glass" style="padding:10px 12px;margin-bottom:6px">
+              <div style="display:flex;gap:8px">
+                <div style="width:74px;color:var(--dim);font-size:10px;font-family:ui-monospace,monospace">24.09 11:42</div>
+                <div>
+                  <div style="color:var(--ok);font-size:12px;font-weight:600">wake.hit</div>
+                  <div class="hint" style="margin:0">potwierdzone: wynik=0.412 próg=0.446 rozrzut=0.300</div>
+                </div>
+              </div>
+            </div>
+            <div class="panel glass" style="padding:10px 12px;margin-bottom:6px;background:linear-gradient(180deg,rgba(255,122,122,.20),rgba(122,44,63,.14))">
+              <div style="display:flex;gap:8px">
+                <div style="width:74px;color:var(--dim);font-size:10px;font-family:ui-monospace,monospace">24.09 11:40</div>
+                <div>
+                  <div style="color:var(--warn);font-size:12px;font-weight:600">audio.mic</div>
+                  <div class="hint" style="margin:0">mikrofon zajęty — wznowię nasłuch po zwolnieniu</div>
+                </div>
+              </div>
+            </div>
+            <div class="panel glass" style="padding:10px 12px">
+              <div style="display:flex;gap:8px">
+                <div style="width:74px;color:var(--dim);font-size:10px;font-family:ui-monospace,monospace">24.09 11:35</div>
+                <div>
+                  <div style="color:var(--ok);font-size:12px;font-weight:600">tool.reminder</div>
+                  <div class="hint" style="margin:0">dodano przypomnienie na 18:30 (leki)</div>
+                </div>
+              </div>
+            </div>
+            <div style="text-align:center;border:1px solid var(--edge2);border-radius:999px;padding:11px 0;font-size:12px;color:var(--text);background:rgba(255,255,255,.05);margin-top:10px">Wyczyść bufor lokalny</div>
+          </div>
+        </div>
+      </div>
+      <div class="caption">Logi: błędy z czerwonym tłem, reszta spokojna i czytelna</div>
     </div>
   </div>
 

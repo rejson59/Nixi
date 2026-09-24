@@ -92,8 +92,9 @@ Ta wersja nie dodaje nowych „modułów” — porządkuje i utwardza to, co ju
 - **Pigułka wjeżdża z góry ekranu** (`slideInVertically` + rozjaśnienie, kula delikatnie „wskakuje”), a przy zamykaniu chowa się tą samą drogą, zanim okno zniknie — koniec ze skokowym pojawianiem się okna.
 - **Zero przyciemniania — teraz z twardą gwarancją**: oprócz `backgroundDimEnabled=false` okno czyści `FLAG_DIM_BEHIND` i ustawia `setDimAmount(0)`, a paski systemowe w tym oknie są przezroczyste (wcześniej zostawał po nich ciemny pas — to właśnie wyglądało jak „przyciemnione tło”).
 - **Ustawienia posegregowane w cztery zakładki**: Mózg (Gemini, limity tokenów, głos), Nasłuch (czułość, ECO, rejestracja wzorca, statystyki), Dane (Supabase, Spotify, prywatność), Telefon (praca w tle na HyperOS, uprawnienia). Każda grupa to szklana karta z opisem, a nie ciąg luźnych wierszy.
-- **Jeden wspólny język wyglądu** (`ui/components/Glass.kt`): karty, pastylki, przyciski i zakładki w jednym miejscu — ekran główny, nawigacja, ustawienia i onboarding wyglądają spójnie, a tło ma łagodny gradient zamiast płaskiej czerni.
-- **Makieta do obejrzenia**: `docs/podglad_ui.html` — otwórz w przeglądarce, żeby zobaczyć docelowy wygląd pigułki, ustawień i ekranu głównego bez instalowania APK (to rysunek w HTML-u, nie zrzut z telefonu; kolory i przezroczystości są te same co w kodzie).
+- **Jeden wspólny język wyglądu** (`ui/components/Glass.kt`): karty, pastylki, przyciski i zakładki w jednym miejscu — ekran główny, nawigacja, ustawienia, onboarding, **Logi, Tabele i szczegóły tabeli** wyglądają spójnie, a tło ma łagodny gradient zamiast płaskiej czerni.
+- **Logi i Tabele dostały ten sam szlif**: filtry jako pastylki, wiersze logów jako szklane karty (błędy z czerwonym tintem zamiast jednolitej czerwonej płachty), karty tabel ze znaczkami dostępu NIXI (czyta/edytuje/usuwa) i panel propozycji SQL z podpowiedzią, gdzie go wkleić.
+- **Makieta do obejrzenia** (pigułka, ustawienia, ekran główny, tabele, logi): `docs/podglad_ui.html` — otwórz w przeglądarce, żeby zobaczyć docelowy wygląd pigułki, ustawień i ekranu głównego bez instalowania APK (to rysunek w HTML-u, nie zrzut z telefonu; kolory i przezroczystości są te same co w kodzie).
 
 **UX na telefonie (Redmi Note 14 Pro 5G):**
 
