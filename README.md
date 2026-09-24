@@ -153,9 +153,12 @@ Wymagania: JDK 17, Gradle 8.10+ (workflow sam ustawia oba).
 Na ekranie głównym jest karta **„Rozmowa z Gemini”** z przyciskiem
 **„Sprawdź NIXI”**. Samokontrola sprawdza po kolei: klucz API Gemini
 (zapytuje listę modeli, więc wykryje też zły klucz i model bez trybu Live),
-nazwę modelu, mikrofon, nasłuch „Hej Nixi”, połączenie z Supabase i strukturę
-tabel, usługę dostępności oraz dostęp do powiadomień — i przy każdym punkcie
-podaje, co zrobić, jeśli coś nie działa. Powód nieudanej rozmowy (dokładny
+nazwę modelu, **otwiera prawdziwą próbną sesję Live** (jeśli Gemini odpowie,
+rozmowa działa; jeśli nie — pokazuje dokładny komunikat serwera), mikrofon,
+nasłuch „Hej Nixi”, połączenie z Supabase i strukturę tabel, usługę
+dostępności oraz dostęp do powiadomień — i przy każdym punkcie podaje,
+co zrobić, jeśli coś nie działa (próbna sesja to jedno zdanie tekstu, więc
+koszt tokenów jest znikomy). Powód nieudanej rozmowy (dokładny
 komunikat z serwera Gemini) pokazuje się też w pigułce rozmowy.
 
 NIXI sama dopasowuje format konfiguracji sesji Live (dokumentacja Google ma

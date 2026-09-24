@@ -14,7 +14,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
 import org.json.JSONObject
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 /**
@@ -58,6 +62,9 @@ object SelfCheck {
                 )
             } else {
                 items.addAll(checkGemini(key))
+                // Ostatni i najważniejszy krok: prawdziwa próba otwarcia
+                // rozmowy. Odpowiada wprost na pytanie „dlaczego NIXI milczy”.
+                items.add(checkLiveSession(key))
             }
             items.add(checkMic(context))
             items.add(checkWake())
@@ -144,6 +151,127 @@ object SelfCheck {
             )
         }
         out
+    }
+
+    /**
+     * Próba otwarcia prawdziwej sesji Live (bez wysyłania audio): jeśli
+     * serwer odpowie `setupComplete`, rozmowa działa; jeśli przyjdzie błąd —
+     * pokazujemy jego treść, bo tam jest cała odpowiedź (zły klucz, brak
+     * dostępu do modelu, zła konfiguracja).
+     */
+    private fun checkLiveSession(key: String): Item {
+        val model = LocalStore.geminiModel
+        val variant = LocalStore.liveSetupVariant
+        val label = "Rozmowa z Gemini"
+        return try {
+            val url = "wss://generativelanguage.googleapis.com/ws/google.ai." +
+                "generativelanguage.v1beta.GenerativeService.BidiGenerateContent" +
+                "?key=" + java.net.URLEncoder.encode(key.trim(), "UTF-8")
+            val setup = testSetup(variant)
+            val latch = CountDownLatch(1)
+            val outcome = java.util.concurrent.atomic.AtomicReference("")
+            val ws = http.newWebSocket(
+                Request.Builder().url(url).build(),
+                object : WebSocketListener() {
+                    override fun onOpen(webSocket: WebSocket, response: Response) {
+                        webSocket.send(setup.toString())
+                    }
+
+                    // Gemini wysyła raz tekst, raz binarnie — patrzymy na oba
+                    override fun onMessage(webSocket: WebSocket, text: String) = handle(text)
+
+                    override fun onMessage(webSocket: WebSocket, bytes: okio.ByteString) =
+                        handle(bytes.utf8())
+
+                    private fun handle(message: String) {
+                        when {
+                            message.contains("setupComplete") -> {
+                                outcome.set("ok")
+                                latch.countDown()
+                            }
+                            message.contains("\"error\"") -> {
+                                outcome.set("serwer: " + message.take(240))
+                                latch.countDown()
+                            }
+                        }
+                    }
+
+                    override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                        outcome.set(
+                            "brak połączenia: ${t.message ?: "?"}" +
+                                (response?.let { " (${it.code})" } ?: "")
+                        )
+                        latch.countDown()
+                    }
+
+                    override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                        if (outcome.get().isEmpty()) {
+                            outcome.set("zamknięto ($code) ${reason.take(160)}")
+                            latch.countDown()
+                        }
+                    }
+                }
+            )
+            val got = latch.await(12, TimeUnit.SECONDS)
+            runCatching { ws.cancel() }
+            val result = outcome.get()
+            when {
+                !got -> Item(label, Level.ERR, "brak odpowiedzi w 12 s", "Sprawdź internet.")
+                result == "ok" -> Item(label, Level.OK, "sesja otwarta ($model, wariant $variant)")
+                else -> Item(
+                    label, Level.ERR, result,
+                    "To jest powód ciszy. Jeśli w treści jest „model”, zmień nazwę modelu " +
+                        "w Ustawieniach → Mózg; jeśli „API key”, wklej klucz ponownie."
+                )
+            }
+        } catch (t: Throwable) {
+            Item(label, Level.ERR, "test nie wyszedł: ${t.message}", "Sprawdź internet i spróbuj ponownie.")
+        }
+    }
+
+    /**
+     * Ten sam kształt `setup`, co w rozmowie (z narzędziami — bo to one
+     * najczęściej są przyczyną odrzucenia), ale bez pełnej instrukcji
+     * systemowej: test ma być szybki i tani.
+     */
+    private fun testSetup(variant: Int): JSONObject {
+        val setup = JSONObject()
+            .put("model", "models/" + LocalStore.geminiModel)
+            .put(
+                "systemInstruction",
+                JSONObject().put(
+                    "parts",
+                    org.json.JSONArray().put(JSONObject().put("text", "Odpowiedz jednym słowem: test."))
+                )
+            )
+            .put(
+                "tools",
+                org.json.JSONArray().put(
+                    JSONObject().put(
+                        "functionDeclarations",
+                        dev.nixi.live.ToolRegistry.declarations()
+                    )
+                )
+            )
+        val speech = JSONObject().put(
+            "voiceConfig",
+            JSONObject().put(
+                "prebuiltVoiceConfig",
+                JSONObject().put("voiceName", LocalStore.voiceName.ifBlank { "Puck" })
+            )
+        )
+        when (variant) {
+            0 -> setup.put(
+                "generationConfig",
+                JSONObject()
+                    .put("responseModalities", org.json.JSONArray().put("AUDIO"))
+                    .put("speechConfig", speech)
+            )
+            1 -> setup
+                .put("responseModalities", org.json.JSONArray().put("AUDIO"))
+                .put("speechConfig", speech)
+        }
+        return JSONObject().put("setup", setup)
     }
 
     private fun problemHint(code: Int, body: String): String = when (code) {
