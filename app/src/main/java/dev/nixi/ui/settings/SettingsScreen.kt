@@ -646,9 +646,9 @@ fun SettingsScreen() {
                     } else if (NixiAccessibilityService.isEnabledInSystem(context)) {
                         // włączona w systemie, ale jeszcze nie podłączona — to NIE błąd
                         PermRow(
-                            "Usługa dostępności — włączona, czeka na połączenie",
-                            false,
-                            grantedLabel = "w systemie",
+                            "Usługa dostępności — włączona w systemie",
+                            true,
+                            grantedLabel = "włączona",
                             openSettings = {
                                 context.startActivity(
                                     Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)

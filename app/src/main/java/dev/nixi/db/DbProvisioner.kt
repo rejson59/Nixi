@@ -121,6 +121,7 @@ object DbProvisioner {
         if (LocalStore.supabaseUrl.isBlank() || LocalStore.supabaseKey.isBlank()) {
             return Outcome(false, "Najpierw podaj URL i klucz anon projektu.")
         }
+        ingestKeys()
         // 1) token osobisty — pełna automatyzacja
         val pat = LocalStore.supabasePat
         if (pat.isNotBlank()) {
@@ -130,6 +131,16 @@ object DbProvisioner {
                 return r
             }
             LogBus.log("db.provision", "management api: ${r.message}", "warn")
+        }
+        // 1b) klucz service_role (często wklejany w pole „anon”) — próbujemy
+        //     wewnętrzne endpointy SQL Supabase, bez SQL Editora.
+        if (jwtRole(LocalStore.supabaseKey) == "service_role") {
+            val pg = runViaPgMeta()
+            if (pg.ok) {
+                check()
+                return pg
+            }
+            LogBus.log("db.provision", "pg-meta: ${pg.message}", "warn")
         }
         // 2) funkcja w bazie (jednorazowe wklejenie SQL-a wystarcza na zawsze)
         val rpc = runViaRpc()
@@ -148,9 +159,36 @@ object DbProvisioner {
                 "Skopiowałem gotowy SQL do schowka — wklej go w SQL Editorze Supabase " +
                 "(przycisk obok otwiera go od razu) i naciśnij „Sprawdź ponownie”. " +
                 "Jeśli wolisz, żebym robiła to sama, dodaj token osobisty Supabase (sbp_…) " +
-                "w polu poniżej.",
+                "albo wklej klucz service_role zamiast anon.",
             needsManualSql = true,
         )
+    }
+
+    /**
+     * Gdy w pole klucza wpadnie token sbp_… albo JWT service_role,
+     * rozkładamy to od razu — użytkownik nie musi zgadywać, które pole.
+     */
+    private fun ingestKeys() {
+        val k = LocalStore.supabaseKey.trim()
+        if (k.startsWith("sbp_") && LocalStore.supabasePat.isBlank()) {
+            LocalStore.supabasePat = k
+        }
+        val p = LocalStore.supabasePat.trim()
+        if (p.startsWith("eyJ") && jwtRole(p) == "anon" && LocalStore.supabaseKey.isBlank()) {
+            LocalStore.supabaseKey = p
+        }
+    }
+
+    private fun jwtRole(token: String): String {
+        if (!token.startsWith("eyJ")) return ""
+        return try {
+            val payload = token.split('.').getOrNull(1) ?: return ""
+            val pad = payload + "=".repeat((4 - payload.length % 4) % 4)
+            val json = String(android.util.Base64.decode(pad, android.util.Base64.URL_SAFE))
+            JSONObject(json).optString("role", "")
+        } catch (_: Throwable) {
+            ""
+        }
     }
 
     /** Droga 1: API zarządzania Supabase (`/v1/projects/{ref}/database/query`). */
@@ -182,6 +220,44 @@ object DbProvisioner {
         } catch (t: Throwable) {
             Outcome(false, "Brak połączenia: ${t.message}")
         }
+    }
+
+    /**
+     * Droga 1b: endpoint SQL studia / pg-meta (działa, gdy wkleisz klucz
+     * service_role — ten klucz omija RLS i bywa przepuszczany przez Kong).
+     */
+    private suspend fun runViaPgMeta(): Outcome = withContext(Dispatchers.IO) {
+        val base = LocalStore.supabaseUrl.trimEnd('/')
+        val key = LocalStore.supabaseKey
+        val urls = listOf(
+            "$base/pg/query",
+            "$base/pg-meta/default/query",
+            "$base/pg-meta/query",
+        )
+        val body = JSONObject().put("query", DbSchema.SQL).toString()
+        var last = "brak odpowiedzi"
+        for (u in urls) {
+            try {
+                val req = Request.Builder()
+                    .url(u)
+                    .addHeader("apikey", key)
+                    .addHeader("Authorization", "Bearer $key")
+                    .addHeader("Content-Type", "application/json")
+                    .post(body.toRequestBody(json))
+                    .build()
+                http.newCall(req).execute().use { resp ->
+                    val text = resp.body?.string().orEmpty()
+                    if (resp.isSuccessful) {
+                        LogBus.log("db.provision", "tabele założone przez $u")
+                        return@withContext Outcome(true, "Tabele gotowe (utworzone i zaktualizowane automatycznie).")
+                    }
+                    last = "${resp.code} ${text.take(120)}"
+                }
+            } catch (t: Throwable) {
+                last = t.message ?: "błąd"
+            }
+        }
+        Outcome(false, last)
     }
 
     /** Droga 2: funkcja `nixi_exec_sql` w bazie (przez PostgREST RPC). */

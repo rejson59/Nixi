@@ -266,7 +266,10 @@ private fun StepPermissions(onNext: () -> Unit) {
         context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
         PackageManager.PERMISSION_GRANTED
     val listenerOn = remember(resumeTick, refresh) { NixiNotificationListener.isEnabled(context) }
-    val a11yOn = remember(resumeTick, refresh) { NixiAccessibilityService.isAvailable() }
+    val a11yOn = remember(resumeTick, refresh) {
+        NixiAccessibilityService.isAvailable() ||
+            NixiAccessibilityService.isEnabledInSystem(context)
+    }
     val batteryFree = remember(resumeTick) { DeviceTweaks.isIgnoringBatteryOptimizations(context) }
 
     Title("Uprawnienia")

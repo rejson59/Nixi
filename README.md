@@ -338,6 +338,11 @@ i tak działa niezależnie od wywołania długim przytrzymaniem).
 
 ## Historia zmian (skrót)
 
+- **1.3.4** — po starcie sesji NIXI sama się wita (koniec ciszy, gdy VAD
+  nie złapie pierwszego słowa); usługa dostępności ma opis i
+  `canRetrieveWindowContent` (HyperOS przestaje zgłaszać ją jako martwą);
+  tabele Supabase zakładają się też z klucza **service_role** wklejonego
+  w pole anon oraz z tokenu `sbp_…` wrzuconego w to samo pole.
 - **1.3.3** — samokontrola sprawdza też **tor dźwięku**: nagrywa 1,5 s
   mikrofonem (czy realnie coś słyszy), sprawdza wyjście audio i głośność
   multimediów — bo wyciszony telefon albo zajęty mikrofon wyglądają

@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">NIXI</string>
+    <string name="a11y_description">NIXI używa tej usługi tylko w trybie ręcznym: klika, przewija i wpisuje tekst na ekranie, gdy o to poprosisz. Nie czyta innych aplikacji w tle.</string>
 </resources>

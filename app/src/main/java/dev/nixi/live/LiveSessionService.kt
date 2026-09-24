@@ -448,7 +448,7 @@ class LiveSessionService : Service() {
 
             override fun onPcm(pcm: ShortArray, len: Int) {
                 val c = client ?: return
-                if (!c.isOpen()) return
+                if (!c.isOpen() || !setupDone) return
                 // Bramka półduplex: gdy NIXI mówi, mikrofon zbiera jej własny
                 // głos z głośnika. Wysyłanie tego do modelu kończyło się
                 // „rozmową z samą sobą” i fałszywymi przerwaniami.
@@ -585,6 +585,13 @@ class LiveSessionService : Service() {
             )
             NixiState.orbState.value = NixiState.OrbState.LISTENING
             if (first && LocalStore.dingEnabled) playDing(dev.nixi.R.raw.ding_start)
+            // Pierwsze słowo od NIXI — bez tego sesja bywała cicha, gdy VAD
+            // nie złapał powitania użytkownika (cichy pokój, daleki mikrofon).
+            if (first) {
+                sendTextCounted(
+                    "Użytkownik właśnie Cię wywołał. Przywitaj się krótko po polsku i czekaj na pytanie."
+                )
+            }
         }
 
         override fun onAudio(pcm: ByteArray) {

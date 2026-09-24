@@ -42,14 +42,16 @@ class NixiAccessibilityService : AccessibilityService() {
                 ""
             }
             if (enabled.isNotBlank()) {
-                // system bywa zapisany skrótem (pakiet/.klasa)
+                // system bywa zapisany skrótem (pakiet/.klasa) albo pełną ścieżką
                 val short = context.packageName + "/." + NixiAccessibilityService::class.java.simpleName
-                enabled.split(':').forEach { entry ->
+                enabled.split(':').forEach { raw ->
+                    val entry = raw.trim()
                     if (entry.equals(expected, ignoreCase = true) ||
-                        entry.equals(short, ignoreCase = true)
+                        entry.equals(short, ignoreCase = true) ||
+                        (entry.contains("NixiAccessibilityService", ignoreCase = true) &&
+                            entry.contains(context.packageName))
                     ) return true
                 }
-                // lista jest znana i naszej usługi w niej nie ma — koniec
                 return false
             }
             // nie udało się odczytać listy (rzadkie) — zostaje sam przełącznik
