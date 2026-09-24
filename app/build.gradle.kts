@@ -12,8 +12,10 @@ android {
         applicationId = "dev.nixi"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        // versionCode trzymamy rosnąco, żeby telefon widział aktualizacje
+        // (nie musimy jej podnosić przy każdym commicie — tylko przy wydaniu).
+        versionCode = 4
+        versionName = "1.2.0"
         vectorDrawables { useSupportLibrary = true }
     }
 
