@@ -9,12 +9,16 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,12 +32,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -43,8 +44,6 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -56,7 +55,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -68,20 +67,31 @@ import dev.nixi.live.LiveSessionService
 import dev.nixi.screen.ScreenCaptureService
 import dev.nixi.store.LocalStore
 import dev.nixi.tools.SpotifyApi
+import dev.nixi.ui.components.GlassDivider
+import dev.nixi.ui.components.GlassIconButton
+import dev.nixi.ui.components.GlassPill
 import dev.nixi.ui.components.NixiOrb
+import dev.nixi.ui.components.StatusPill
 import dev.nixi.ui.theme.NixiOk
 import dev.nixi.ui.theme.NixiPurple
 import dev.nixi.ui.theme.NixiSurfaceHi
 import dev.nixi.ui.theme.NixiText
 import dev.nixi.ui.theme.NixiTextDim
+import dev.nixi.ui.theme.NixiWarn
 import dev.nixi.util.LogBus
+import kotlinx.coroutines.delay
 
 /**
- * Okno rozmowy NIXI:
- *  - kula w lewym górnym rogu (nad wszystkim, także nad blokadką),
- *  - okna potwierdzeń destrukcyjnych akcji (Tak/Nie),
- *  - zgoda MediaProjection dla trybu ręcznego (dokładnie JEDEN raz),
- *  - propozycje DDL (SQL) do wklejenia.
+ * Okno rozmowy NIXI — JEDNA szklana pigułka u góry ekranu.
+ *
+ * W pigułce jest wszystko, co dotyczy wywołania asystentki: kula (stan i
+ * poziom głosu), nazwa ze statusem, ostatnie narzędzie, licznik tokenów oraz
+ * sterowanie (tryb ręczny / aplikacja / koniec). Nie ma osobnego paska na
+ * dole ekranu ani żadnego przyciemnienia — tło (Twoja aplikacja, film, cokolwiek
+ * masz pod spodem) zostaje widoczne, a czytelność zapewnia samo szkło.
+ *
+ * Pigułka wjeżdża z góry ekranu (slide-in + delikatne powiększenie kuli),
+ * a przy zamykaniu okna chowa się tą samą drogą, zanim aktywność zniknie.
  */
 class ConversationActivity : ComponentActivity() {
 
@@ -108,6 +118,14 @@ class ConversationActivity : ComponentActivity() {
         setShowWhenLocked(true)
         setTurnScreenOn(true)
         WindowCompat.setDecorFitsSystemWindows(window, false)
+
+        // Twarda gwarancja braku przyciemnienia: nawet jeśli jakiś motyw
+        // producenta (HyperOS lubi dokładać swoje) włączyłby dim, gasimy go
+        // tu bezpośrednio na oknie.
+        runCatching {
+            window.setDimAmount(0f)
+            window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+        }
 
         setContent {
             ConversationUi(
@@ -182,84 +200,147 @@ fun ConversationUi(
         else -> 0f
     }
 
-    // Tło ma zostać WIDOCZNE (aplikacja/ekran pod spodem), więc nie ma tu
-    // żadnego przyciemniającego overlayu — czytelność zapewnia szklana
-    // pigułka u góry i pasek przycisków na dole.
+    // ── Wjazd z góry ──────────────────────────────────────────────────────
+    // Okno pojawia się natychmiast (tak działa start aktywności z tła), ale
+    // pigułka wjeżdża z góry ekranu, więc wrażenie jest płynne, a nie skokowe.
+    var shown by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        // jedna klatka opóźnienia, żeby animacja miała od czego wystartować
+        delay(16)
+        shown = true
+    }
+    // Zamknięcie z animacją: najpierw pigułka chowa się do góry (220 ms),
+    // dopiero potem kończymy aktywność — inaczej okno znikałoby skokowo.
+    var closing by remember { mutableStateOf(false) }
+    LaunchedEffect(closing) {
+        if (closing) {
+            delay(220)
+            onClose()
+        }
+    }
+    val orbScale by animateFloatAsState(
+        targetValue = if (shown) 1f else 0.82f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        label = "orbScale",
+    )
+
     val cutoutTop = cutout.calculateTopPadding()
     val pillTop = (if (cutoutTop > topInset) cutoutTop else topInset) + 10.dp
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // ── Szklana pigułka: kula + status (góra, na środku) ──
-        Column(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = pillTop)
-                .clip(RoundedCornerShape(30.dp))
-                .background(Color(0x590B0714))
-                .border(1.dp, Color(0x2EFFFFFF), RoundedCornerShape(30.dp))
-                .padding(horizontal = 18.dp, vertical = 10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            NixiOrb(size = 92.dp, state = state, level = level)
-            Spacer(Modifier.height(4.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "NIXI",
-                    color = NixiText,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
-                )
-                Spacer(Modifier.width(8.dp))
-                StatusChip(state, lastTool)
-            }
-            if (tpm.limit > 0) {
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "tokeny: ${tpm.used}/${tpm.limit}" +
-                        if (tpm.backoffSec > 0) " • pauza ${tpm.backoffSec}s" else "",
-                    color = if (tpm.percent > 90) Color(0xFFFFC46B) else NixiTextDim,
-                    fontSize = 11.sp,
-                )
-            }
-        }
-
-        // ── Dolny pasek ──────────────────────────────────────
-        Row(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 16.dp + bottomInset)
-                .clip(RoundedCornerShape(28.dp))
-                .background(Color(0x590B0714))
-                .border(1.dp, Color(0x2EFFFFFF), RoundedCornerShape(28.dp))
-                .padding(horizontal = 18.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            RoundButton(icon = Icons.Filled.TouchApp, label = "ręczny",
-                onClick = onManualMode, highlighted = manual)
-            RoundButton(icon = Icons.Filled.Home, label = "aplikacja", onClick = onOpenApp)
-            RoundButton(icon = Icons.Filled.Close, label = "koniec",
-                onClick = onClose, danger = true)
-        }
-
-        // ── Propozycja SQL (DDL) ─────────────────────────────
+        // ── JEDNA pigułka: kula + status + sterowanie ─────────────────────
         AnimatedVisibility(
-            visible = pendingSql.isNotBlank(),
-            enter = fadeIn(tween(250)),
-            exit = fadeOut(tween(250)),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 100.dp + bottomInset),
+            visible = shown && !closing,
+            enter = slideInVertically(
+                initialOffsetY = { -it - 24 },
+                animationSpec = tween(360, easing = LinearOutSlowInEasing),
+            ) + fadeIn(tween(260)),
+            exit = slideOutVertically(
+                targetOffsetY = { -it - 24 },
+                animationSpec = tween(220),
+            ) + fadeOut(tween(180)),
+            modifier = Modifier.align(Alignment.TopCenter),
         ) {
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = NixiSurfaceHi,
+            GlassPill(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp),
+                    .padding(top = pillTop, start = 12.dp, end = 12.dp),
             ) {
-                Column(Modifier.padding(14.dp)) {
-                    Text("NIXI zaproponowała zmianę struktury (DDL)",
-                        color = NixiText, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        // Kula w pigułce — mniejsza, żeby całość była zgrabna
+                        Box(modifier = Modifier.scale(orbScale)) {
+                            NixiOrb(size = 72.dp, state = state, level = level)
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "NIXI",
+                                    color = NixiText,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 18.sp,
+                                )
+                                Spacer(Modifier.width(10.dp))
+                                StatusPill(state = state)
+                            }
+                            if (lastTool.isNotBlank()) {
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "» " + lastTool,
+                                    color = NixiTextDim,
+                                    fontSize = 11.sp,
+                                    maxLines = 2,
+                                )
+                            }
+                            if (tpm.limit > 0) {
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "tokeny: ${tpm.used}/${tpm.limit}" +
+                                        if (tpm.backoffSec > 0) " • pauza ${tpm.backoffSec}s" else "",
+                                    color = if (tpm.percent > 90) NixiWarn else NixiTextDim,
+                                    fontSize = 11.sp,
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.height(12.dp))
+                    GlassDivider()
+                    Spacer(Modifier.height(10.dp))
+
+                    // Sterowanie w tej samej pigułce (wcześniej: osobny pasek na dole)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                    ) {
+                        GlassIconButton(
+                            icon = Icons.Filled.TouchApp,
+                            label = "ręczny",
+                            size = 44.dp,
+                            accent = if (manual) NixiPurple else null,
+                            onClick = onManualMode,
+                        )
+                        GlassIconButton(
+                            icon = Icons.Filled.Home,
+                            label = "aplikacja",
+                            size = 44.dp,
+                            onClick = onOpenApp,
+                        )
+                        GlassIconButton(
+                            icon = Icons.Filled.Close,
+                            label = "koniec",
+                            size = 44.dp,
+                            accent = Color(0xFF7A2C3F),
+                            onClick = { closing = true },
+                        )
+                    }
+                }
+            }
+        }
+
+        // ── Propozycja SQL (DDL) — rzadka, więc osobny szklany panel pod pigułką ──
+        AnimatedVisibility(
+            visible = pendingSql.isNotBlank(),
+            enter = slideInVertically(
+                initialOffsetY = { -it / 2 },
+                animationSpec = tween(280),
+            ) + fadeIn(tween(220)) + scaleIn(initialScale = 0.96f, animationSpec = tween(280)),
+            exit = fadeOut(tween(200)),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 20.dp + bottomInset),
+        ) {
+            GlassPill(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+            ) {
+                Column(Modifier.padding(4.dp)) {
+                    Text(
+                        "NIXI zaproponowała zmianę struktury (DDL)",
+                        color = NixiText, fontWeight = FontWeight.SemiBold, fontSize = 13.sp,
+                    )
                     Spacer(Modifier.height(6.dp))
                     SelectionContainer {
                         Text(
@@ -283,13 +364,15 @@ fun ConversationUi(
                             Spacer(Modifier.width(6.dp))
                             Text("Kopiuj SQL", color = NixiPurple)
                         }
-                        OutlinedButton(onClick = {
+                        TextButton(onClick = {
                             val ref = supabaseProjectRef()
                             if (ref.isNotBlank()) {
                                 runCatching {
                                     context.startActivity(
-                                        Intent(Intent.ACTION_VIEW,
-                                            Uri.parse("https://supabase.com/dashboard/project/$ref/sql/new"))
+                                        Intent(
+                                            Intent.ACTION_VIEW,
+                                            Uri.parse("https://supabase.com/dashboard/project/$ref/sql/new")
+                                        )
                                     )
                                 }
                             }
@@ -379,84 +462,5 @@ private fun supabaseProjectRef(): String {
         host.substringBefore('.')
     } catch (_: Exception) {
         ""
-    }
-}
-
-@Composable
-private fun RoundButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    onClick: () -> Unit,
-    highlighted: Boolean = false,
-    danger: Boolean = false,
-) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(
-            modifier = Modifier
-                .size(52.dp)
-                .clip(CircleShape)
-                .background(
-                    when {
-                        danger -> Color(0xFF3A1020)
-                        highlighted -> NixiPurple
-                        else -> Color(0x99171029)
-                    }
-                )
-                .clickable(onClick = onClick),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = if (highlighted) Color.White else NixiText,
-            )
-        }
-        Spacer(Modifier.height(4.dp))
-        Text(label, color = NixiTextDim, fontSize = 11.sp)
-    }
-}
-
-@Composable
-private fun StatusChip(state: NixiState.OrbState, lastTool: String) {
-    val (text, color) = when (state) {
-        NixiState.OrbState.IDLE -> "gotowa" to NixiTextDim
-        NixiState.OrbState.LISTENING -> "słucham…" to NixiOk
-        NixiState.OrbState.THINKING -> "myślę…" to NixiPurple
-        NixiState.OrbState.SPEAKING -> "odpowiadam" to NixiPurple
-        NixiState.OrbState.MANUAL -> "tryb ręczny — steruję ekranem" to NixiPurple
-        NixiState.OrbState.TPM_LIMIT -> "limit tokenów — pauza" to Color(0xFFFFC46B)
-        NixiState.OrbState.ERROR -> "błąd" to Color(0xFFFF7A7A)
-    }
-    Surface(
-        shape = RoundedCornerShape(999.dp),
-        color = Color(0xB3171029),
-    ) {
-        Row(
-            Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                Modifier
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(color)
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                text,
-                color = NixiText,
-                fontSize = 12.sp,
-                maxLines = 1,
-            )
-        }
-    }
-    if (lastTool.isNotBlank()) {
-        Text(
-            "» " + lastTool,
-            color = NixiTextDim,
-            fontSize = 11.sp,
-            maxLines = 2,
-            modifier = Modifier.padding(start = 12.dp, top = 4.dp),
-        )
     }
 }

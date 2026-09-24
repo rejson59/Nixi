@@ -30,7 +30,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -58,7 +57,7 @@ import dev.nixi.store.LocalStore
 import dev.nixi.ui.components.NixiOrb
 import dev.nixi.ui.components.rememberOnResumeTick
 import dev.nixi.util.DeviceTweaks
-import dev.nixi.ui.theme.NixiBg
+import dev.nixi.ui.components.PillButton
 import dev.nixi.ui.theme.NixiOk
 import dev.nixi.ui.theme.NixiPurple
 import dev.nixi.ui.theme.NixiSurface
@@ -82,7 +81,6 @@ fun OnboardingScreen(onFinish: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(NixiBg)
             .verticalScroll(rememberScrollState())
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -447,14 +445,11 @@ private fun Title(text: String) {
 
 @Composable
 private fun PrimaryButton(label: String, onClick: () -> Unit) {
-    Button(
-        onClick = onClick,
-        shape = RoundedCornerShape(14.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = NixiPurple),
+    PillButton(
+        text = label,
         modifier = Modifier.fillMaxWidth(),
-    ) {
-        Text(label, color = Color.White, fontSize = 15.sp)
-    }
+        onClick = onClick,
+    )
 }
 
 @Composable
@@ -464,14 +459,19 @@ fun NixiField(label: String, value: String, onValueChange: (String) -> Unit) {
         onValueChange = onValueChange,
         label = { Text(label) },
         singleLine = true,
+        shape = RoundedCornerShape(14.dp),
         modifier = Modifier.fillMaxWidth(),
         colors = TextFieldDefaults.colors(
-            focusedContainerColor = NixiSurface,
-            unfocusedContainerColor = NixiSurface,
+            // półprzezroczyste tło: pole „siedzi" w szklanej karcie, a nie na niej
+            focusedContainerColor = Color(0x66120C22),
+            unfocusedContainerColor = Color(0x40120C22),
             focusedLabelColor = NixiPurple,
+            unfocusedLabelColor = NixiTextDim,
             cursorColor = NixiPurple,
+            focusedTextColor = NixiText,
+            unfocusedTextColor = NixiText,
             focusedIndicatorColor = NixiPurple,
-            unfocusedIndicatorColor = Color(0xFF2A2145),
+            unfocusedIndicatorColor = Color(0x33FFFFFF),
         ),
     )
 }

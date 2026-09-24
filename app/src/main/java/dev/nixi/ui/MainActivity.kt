@@ -19,15 +19,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TableRows
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -39,13 +37,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.nixi.NixiApp
-import dev.nixi.NixiState
 import dev.nixi.db.SupabaseHub
 import dev.nixi.notif.NixiNotificationListener
 import dev.nixi.notif.ReminderScheduler
@@ -55,9 +53,10 @@ import dev.nixi.ui.logs.LogsScreen
 import dev.nixi.ui.onboarding.OnboardingScreen
 import dev.nixi.ui.settings.SettingsScreen
 import dev.nixi.ui.tables.TablesScreen
-import dev.nixi.ui.theme.NixiBg
+import dev.nixi.ui.components.glass
+import dev.nixi.ui.theme.NixiBgGradient
 import dev.nixi.ui.theme.NixiPurple
-import dev.nixi.ui.theme.NixiText
+import dev.nixi.ui.theme.NixiPurpleSoft
 import dev.nixi.ui.theme.NixiTextDim
 import dev.nixi.ui.theme.NixiTheme
 import dev.nixi.wake.WakeWordService
@@ -79,9 +78,10 @@ class MainActivity : ComponentActivity() {
         }
         setContent {
             NixiTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background,
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(NixiBgGradient),
                 ) {
                     Root()
                 }
@@ -158,9 +158,14 @@ fun BottomNav(selected: Int, onSelected: (Int) -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(NixiBg)
-            .padding(horizontal = 8.dp, vertical = 6.dp),
+            .glass(
+                shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp),
+                strong = true,
+                elevation = 12.dp,
+            )
+            .padding(horizontal = 10.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         items.forEachIndexed { index, item ->
             val active = index == selected
@@ -168,8 +173,10 @@ fun BottomNav(selected: Int, onSelected: (Int) -> Unit) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
                     .weight(1f)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(if (active) NixiPurpleSoft else Color.Transparent)
                     .clickable { onSelected(index) }
-                    .padding(vertical = 4.dp),
+                    .padding(vertical = 6.dp),
             ) {
                 Icon(
                     imageVector = item.icon,
