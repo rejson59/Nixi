@@ -154,11 +154,13 @@ Na ekranie głównym jest karta **„Rozmowa z Gemini”** z przyciskiem
 **„Sprawdź NIXI”**. Samokontrola sprawdza po kolei: klucz API Gemini
 (zapytuje listę modeli, więc wykryje też zły klucz i model bez trybu Live),
 nazwę modelu, **otwiera prawdziwą próbną sesję Live** (jeśli Gemini odpowie,
-rozmowa działa; jeśli nie — pokazuje dokładny komunikat serwera), mikrofon,
-nasłuch „Hej Nixi”, połączenie z Supabase i strukturę tabel, usługę
-dostępności oraz dostęp do powiadomień — i przy każdym punkcie podaje,
-co zrobić, jeśli coś nie działa (próbna sesja to jedno zdanie tekstu, więc
-koszt tokenów jest znikomy). Powód nieudanej rozmowy (dokładny
+rozmowa działa; jeśli nie — pokazuje dokładny komunikat serwera), **nagrywa
+1,5 s mikrofonem** (odróżnia „jest uprawnienie” od „mikrofon realnie coś
+słyszy”), sprawdza **wyjście audio i głośność multimediów**, nasłuch
+„Hej Nixi”, połączenie z Supabase i strukturę tabel, usługę dostępności
+oraz dostęp do powiadomień — i przy każdym punkcie podaje, co zrobić,
+jeśli coś nie działa (próbna sesja to jedno zdanie tekstu, więc koszt
+tokenów jest znikomy). Powód nieudanej rozmowy (dokładny
 komunikat z serwera Gemini) pokazuje się też w pigułce rozmowy.
 
 NIXI sama dopasowuje format konfiguracji sesji Live (dokumentacja Google ma
@@ -336,6 +338,10 @@ i tak działa niezależnie od wywołania długim przytrzymaniem).
 
 ## Historia zmian (skrót)
 
+- **1.3.3** — samokontrola sprawdza też **tor dźwięku**: nagrywa 1,5 s
+  mikrofonem (czy realnie coś słyszy), sprawdza wyjście audio i głośność
+  multimediów — bo wyciszony telefon albo zajęty mikrofon wyglądają
+  dokładnie tak samo jak „NIXI nie odpowiada”.
 - **1.3.2** — naprawa „NIXI nie odpowiada”: automatyczne dopasowanie formatu
   konfiguracji sesji Live + dokładny komunikat błędu z serwera (w pigułce
   i na ekranie głównym); samokontrola „Sprawdź NIXI”; samoczynne zakładanie

@@ -67,6 +67,7 @@ object SelfCheck {
                 items.add(checkLiveSession(key))
             }
             items.add(checkMic(context))
+            items.add(checkSpeaker(context))
             items.add(checkWake())
             items.add(checkSupabase())
             items.add(checkAccessibility(context))
@@ -281,13 +282,157 @@ object SelfCheck {
         else -> body.take(160)
     }
 
-    private fun checkMic(context: Context): Item {
-        val ok = context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) ==
+    /**
+     * Test mikrofonu z prawdziwym nasłuchem: 1,5 s zapisu (albo poziom
+     * z działającego już nasłuchu „Hej Nixi”). To odróżnia „uprawnienie
+     * jest” od „mikrofon realnie coś słyszy” — a właśnie to drugie decyduje
+     * o tym, czy NIXI odpowie.
+     */
+    private suspend fun checkMic(context: Context): Item = withContext(Dispatchers.IO) {
+        val granted = context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) ==
             PackageManager.PERMISSION_GRANTED
-        return if (ok) Item("Mikrofon", Level.OK, "uprawnienie przyznane")
+        if (!granted) {
+            return@withContext Item(
+                "Mikrofon", Level.ERR, "brak uprawnienia",
+                "Ustawienia systemowe → Aplikacje → NIXI → Uprawnienia → Mikrofon."
+            )
+        }
+
+        // Nasłuch już zbiera dźwięk — nie otwieramy drugiego mikrofonu.
+        if (dev.nixi.audio.AudioBus.isRunning()) {
+            var peak = 0f
+            val end = System.currentTimeMillis() + 2000
+            while (System.currentTimeMillis() < end) {
+                peak = maxOf(peak, NixiState.micLevel.value)
+                Thread.sleep(80)
+            }
+            val pct = (peak * 100).toInt()
+            return@withContext if (peak > 0.04f) {
+                Item("Mikrofon", Level.OK, "słyszę dźwięk (poziom ${pct}%)")
+            } else {
+                Item(
+                    "Mikrofon", Level.WARN, "otwarty, ale cisza (poziom ${pct}%)",
+                    "Powiedz coś głośno w trakcie tego testu. Jeśli nadal 0% — " +
+                        "sprawdź, czy mikrofon nie jest wyciszony systemowo (albo zajęty przez inną aplikację)."
+                )
+            }
+        }
+
+        val rec = try {
+            val min = android.media.AudioRecord.getMinBufferSize(
+                16000,
+                android.media.AudioFormat.CHANNEL_IN_MONO,
+                android.media.AudioFormat.ENCODING_PCM_16BIT
+            )
+            android.media.AudioRecord(
+                android.media.MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                16000,
+                android.media.AudioFormat.CHANNEL_IN_MONO,
+                android.media.AudioFormat.ENCODING_PCM_16BIT,
+                maxOf(min, 6400)
+            )
+        } catch (t: Throwable) {
+            null
+        }
+        if (rec == null || rec.state != android.media.AudioRecord.STATE_INITIALIZED) {
+            runCatching { rec?.release() }
+            return@withContext Item(
+                "Mikrofon", Level.ERR, "nie mogę otworzyć mikrofonu",
+                "Prawdopodobnie trwa rozmowa telefoniczna albo inna aplikacja trzyma mikrofon. " +
+                    "Zamknij ją i spróbuj ponownie."
+            )
+        }
+
+        var peak = 0.0
+        try {
+            rec.startRecording()
+            val buf = ShortArray(1600) // 100 ms
+            val end = System.currentTimeMillis() + 1500
+            var first = true
+            while (System.currentTimeMillis() < end) {
+                val n = rec.read(buf, 0, buf.size)
+                if (n <= 0) continue
+                if (first) {
+                    first = false
+                    continue // pierwsza klatka po starcie bywa zaszumiona
+                }
+                var sum = 0.0
+                for (i in 0 until n) {
+                    val v = buf[i] / 32768.0
+                    sum += v * v
+                }
+                peak = maxOf(peak, kotlin.math.sqrt(sum / n))
+            }
+        } catch (t: Throwable) {
+            runCatching { rec.release() }
+            return@withContext Item("Mikrofon", Level.ERR, "błąd zapisu: ${t.message}")
+        } finally {
+            runCatching { rec.stop() }
+            runCatching { rec.release() }
+        }
+        val pct = (peak / 0.02 * 100).toInt().coerceAtMost(100)
+        if (peak > 0.004) {
+            Item("Mikrofon", Level.OK, "słyszę dźwięk (poziom ${pct}%)")
+        } else {
+            Item(
+                "Mikrofon", Level.WARN, "otwarty, ale cisza (poziom ${pct}%)",
+                "Powiedz coś w trakcie testu. Jeśli nadal 0% — sprawdź wyciszenie mikrofonu " +
+                    "albo czy nie trzyma go inna aplikacja."
+            )
+        }
+    }
+
+    /**
+     * Test wyjścia audio: czy telefon w ogóle może odtworzyć głos NIXI.
+     * Sprawdzamy głośność strumienia multimediów i to, czy AudioTrack
+     * przyjmuje dane. Bez tego „cisza” bywa po prostu wyciszonym telefonem.
+     */
+    private fun checkSpeaker(context: Context): Item {
+        val am = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+        val vol = am?.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) ?: -1
+        val max = am?.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC) ?: 0
+        if (vol == 0) {
+            return Item(
+                "Głośnik", Level.WARN, "multimedia wyciszone (0/$max)",
+                "Podgłoś telefon — przy wyciszonym strumieniu multimediów nie usłyszysz NIXI."
+            )
+        }
+        val ok = try {
+            val min = android.media.AudioTrack.getMinBufferSize(
+                24000,
+                android.media.AudioFormat.CHANNEL_OUT_MONO,
+                android.media.AudioFormat.ENCODING_PCM_16BIT
+            )
+            val t = android.media.AudioTrack.Builder()
+                .setAudioAttributes(
+                    android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_ASSISTANT)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build()
+                )
+                .setAudioFormat(
+                    android.media.AudioFormat.Builder()
+                        .setSampleRate(24000)
+                        .setChannelMask(android.media.AudioFormat.CHANNEL_OUT_MONO)
+                        .setEncoding(android.media.AudioFormat.ENCODING_PCM_16BIT)
+                        .build()
+                )
+                .setBufferSizeInBytes(maxOf(min * 2, 96000))
+                .setTransferMode(android.media.AudioTrack.MODE_STREAM)
+                .build()
+            val silence = ByteArray(4800) // 100 ms ciszy — test bez dźwięku
+            t.play()
+            val written = t.write(silence, 0, silence.size)
+            runCatching { t.stop() }
+            runCatching { t.release() }
+            written > 0
+        } catch (_: Throwable) {
+            false
+        }
+        return if (ok) Item("Głośnik", Level.OK, "wyjście audio gotowe (głośność $vol/$max)")
         else Item(
-            "Mikrofon", Level.ERR, "brak uprawnienia",
-            "Ustawienia systemowe → Aplikacje → NIXI → Uprawnienia → Mikrofon."
+            "Głośnik", Level.ERR, "nie mogę odtworzyć dźwięku",
+            "Sprawdź, czy żadna aplikacja nie blokuje wyjścia audio, i spróbuj ponownie."
         )
     }
 
