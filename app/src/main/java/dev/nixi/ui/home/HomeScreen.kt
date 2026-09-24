@@ -180,6 +180,22 @@ fun HomeScreen() {
                         modifier = Modifier.padding(12.dp),
                     )
                 }
+            } else if (LocalStore.wakeNeedsEnroll) {
+                // Nowy detektor (kaskada mel) nie rozumie starego szablonu —
+                // lepiej powiedzieć to wprost, niż udawać, że nasłuch działa.
+                Surface(
+                    color = NixiSurface,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        "Detektor „Hej Nixi” został przebudowany — nagraj frazę " +
+                            "od nowa w Ustawieniach (3 próby), żeby nasłuch znów " +
+                            "rozpoznawał Twój głos.",
+                        color = NixiWarn, fontSize = 12.sp,
+                        modifier = Modifier.padding(12.dp),
+                    )
+                }
             }
         }
 

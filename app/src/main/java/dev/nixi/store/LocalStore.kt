@@ -72,6 +72,15 @@ object LocalStore {
         get() = prefs.getString("wake_templates", "") ?: ""
         set(v) = prefs.edit().putString("wake_templates", v).apply()
 
+    /**
+     * True, gdy zapisany szablon pochodzi ze starszego detektora (inne cechy)
+     * — wtedy nasłuch działa, ale nic nie rozpozna, dopóki użytkownik nie
+     * nagra frazy ponownie. Pokazujemy to na ekranie głównym.
+     */
+    var wakeNeedsEnroll: Boolean
+        get() = prefs.getBoolean("wake_needs_enroll", false)
+        set(v) = prefs.edit().putBoolean("wake_needs_enroll", v).apply()
+
     var dingEnabled: Boolean
         get() = prefs.getBoolean("ding_enabled", true)
         set(v) = prefs.edit().putBoolean("ding_enabled", v).apply()

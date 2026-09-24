@@ -227,11 +227,20 @@ fun SettingsScreen() {
                 )
             }
         }
+        if (LocalStore.wakeNeedsEnroll) {
+            item {
+                Text(
+                    "Szablon pochodzi ze starszego detektora — nagraj „Hej Nixi” " +
+                        "ponownie (3 próby), żeby nasłuch działał.",
+                    color = NixiWarn, fontSize = 12.sp,
+                )
+            }
+        }
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "Statystyki: ${LocalStore.wakeCpuMsPerMin} ms CPU / min nasłuchu. " +
-                        "W tle wątek śpi — pobór niski.",
+                    "Statystyki: ${LocalStore.wakeCpuMsPerMin} ms CPU na minutę nasłuchu " +
+                        "(w ciszy to prawie zero — FFT liczy się tylko na mowę).",
                     color = NixiTextDim, fontSize = 11.sp, modifier = Modifier.weight(1f)
                 )
                 OutlinedButton(onClick = { enrollOpen = true }) {

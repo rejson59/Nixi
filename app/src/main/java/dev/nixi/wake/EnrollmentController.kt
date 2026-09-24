@@ -92,14 +92,25 @@ object EnrollmentController {
             attempts.add(frames.frames)
             val takes = attempts.size
             if (takes >= 3) {
-                val threshold = WakeEnroll.calibrate(attempts)
-                val json = WakeEngine().toJson(16, 10, threshold, attempts)
+                // Podpis mówcy (średnia + odchylenie kanałów) i próg podobieństwa
+                // liczymy z Twoich własnych prób — to trzeci filtr kaskady,
+                // odpowiednik weryfikacji mówcy w hotwordzie Google.
+                val signature = WakeEnroll.meanSignature(attempts)
+                val sigThreshold = WakeEnroll.signatureThreshold(attempts)
+                val spread = WakeEnroll.spread(attempts)
+                val json = WakeEngine().toJson(attempts, sigThreshold, signature)
+                // do preferencji zapisujemy JSON (przeżyje restart), a silnikowi
+                // przekazujemy cechy wprost — bez pośredniego parsowania
                 LocalStore.wakeTemplates = json
-                WakeWordService.engine.loadFromJson(json)
-                // loadFromJson ustawia tryb wynikający z szablonu (hop 10 ms =>
-                // STANDARD) i nadpisywał wybór użytkownika — przywracamy go.
+                LocalStore.wakeNeedsEnroll = false
+                WakeWordService.engine.loadTemplates(attempts, signature, sigThreshold)
+                // tryb (STANDARD/ECO) ustawiamy po wczytaniu szablonu, żeby
+                // nie nadpisał wyboru użytkownika
                 WakeWordService.ensureEngineConfigured()
-                LogBus.log("wake.enroll", "szablon zapisany (próg ${"%.3f".format(threshold)})")
+                LogBus.log(
+                    "wake.enroll",
+                    "szablon zapisany: rozrzut=%.3f próg podpisu=%.2f".format(spread, sigThreshold)
+                )
                 _state.value = State(
                     takes = takes, recording = false,
                     message = "Gotowe! NIXI poznała Twoje „Hej Nixi”.", done = true

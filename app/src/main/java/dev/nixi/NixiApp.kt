@@ -43,6 +43,15 @@ class NixiApp : Application() {
 
         ActionNotifier.ensureChannels()
 
+        // Detektor „Hej Nixi" po przebudowie (kaskada mel) nie rozumie starego
+        // szablonu Goertzla. Sprawdzamy to od razu, żeby użytkownik zobaczył
+        // prośbę o ponowne nagranie, a nie ciszę. Bez parsowania JSON-a:
+        // nowy format zawsze zawiera wersję 2.
+        runCatching {
+            val t = LocalStore.wakeTemplates
+            if (t.isNotBlank() && !t.contains("\"v\":2")) LocalStore.wakeNeedsEnroll = true
+        }
+
         // Piesek nasłuchu (co 15 min) — HyperOS potrafi ubić usługę, gdy
         // aplikacja jest zamknięta, a wtedy nikt by jej nie podniósł.
         runCatching { dev.nixi.boot.WakeWatchdog.arm(this) }

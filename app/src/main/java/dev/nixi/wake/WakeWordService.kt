@@ -49,8 +49,36 @@ class WakeWordService : Service() {
                 if (!LocalStore.wakeEnabled) return
                 if (NixiState.inSession.value) return
                 val svc = instance ?: return
-                if (engine.onPcm(pcm, len)) svc.onWakeHit()
+                // Ile realnego CPU zjada nasłuch — mierzone, bo w Ustawieniach
+                // pokazujemy tę liczbę użytkownikowi (wcześniej zawsze 0).
+                val t0 = System.nanoTime()
+                val hit = engine.onPcm(pcm, len)
+                cpuNanos += System.nanoTime() - t0
+                maybeLogStats()
+                if (hit) svc.onWakeHit()
             }
+        }
+
+        /** Statystyki detektora raz na minutę — do dostrajania na telefonie. */
+        @Volatile private var lastStatsLog = 0L
+
+        @Volatile private var cpuNanos = 0L
+
+        private fun maybeLogStats() {
+            val now = System.currentTimeMillis()
+            if (now - lastStatsLog < 60_000) return
+            // Normalizujemy do „na minutę", bo pierwsze okno po restarcie
+            // usługi może być krótsze niż minuta.
+            val window = if (lastStatsLog == 0L) 60_000L else now - lastStatsLog
+            val cpuMs = cpuNanos / 1_000_000
+            val perMinute = if (window > 0) cpuMs * 60_000 / window else cpuMs
+            LocalStore.wakeCpuMsPerMin = perMinute
+            cpuNanos = 0
+            lastStatsLog = now
+            LogBus.log(
+                "wake.stats",
+                engine.statsSummary() + " cpu=${cpuMs}ms/${window}ms (~${perMinute}ms/min)"
+            )
         }
 
         fun hasMicPermission(context: Context): Boolean =
@@ -108,10 +136,18 @@ class WakeWordService : Service() {
                 else LogBus.log("wake.eco", "wracam do trybu STANDARD")
             }
             engine.configure(mode, LocalStore.wakeSensitivity)
-            if (LocalStore.wakeTemplates.isNotBlank()) {
-                if (!engine.hasTemplates()) engine.loadFromJson(LocalStore.wakeTemplates)
+            // Szablon ładujemy, gdy się zmienił (albo po starcie procesu).
+            // Wcześniej warunkiem było „brak szablonów", więc po nieudanym
+            // wczytaniu próbowaliśmy w kółko i log zapełniał się ostrzeżeniami.
+            val json = LocalStore.wakeTemplates
+            if (json.isNotBlank() && json != loadedTemplatesJson) {
+                loadedTemplatesJson = json
+                engine.loadFromJson(json)
+                LocalStore.wakeNeedsEnroll = engine.requiresReenroll
             }
         }
+
+        @Volatile private var loadedTemplatesJson = ""
 
         /** Utrzymuje JEDEN wspólny mikrofon uzbrojony na nasłuch. */
         fun ensureCapture() {

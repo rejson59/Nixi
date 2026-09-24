@@ -18,7 +18,7 @@ trzech ustawień systemowych żadna aplikacja z mikrofonem w tle nie przetrwa.
 |---|---|
 | **Mózg** | Gemini Live API (WebSocket `BidiGenerateContent`). Klucz API wklejasz w aplikacji. Klient ma wbudowaną **ochronę TPM** (65K/min free tier) — liczy wejście **i wyjście** modelu, nigdy nie wysyła audio ponad budżet i łagodnie pauzuje przy 429. Sesja **wznawia się sama** po zerwaniu sieci i po komunikacie `goAway` (session resumption, 3 próby z backoffem). |
 | **Pamięć długotrwała** | Po każdej rozmowie NIXI (tani model flash) wyciąga **trwałe fakty** (`memory_facts`) i krótkie **podsumowanie** (`recent_conversations`). Fakty są wstrzykiwane w system prompt kolejnych sesji. |
-| **Wake-word** | „Hej Nixi” — **offline**, bez modeli i sieci: cechy mel (Goertzel) + adaptacyjny szum + DTW przeciwko Twojemu 3-krotnemu nagraniu. Niskie zużycie: jeden wspólny `AudioRecord`, brak wakelocka, tryb ECO. Działa w tle i **nad ekranem blokady**. |
+| **Wake-word** | „Hej Nixi” — **offline**, bez modeli i sieci: bramka mowy + frontend log-mel + dwustopniowa kaskada (tani pierwszy stopień, dokładny drugi) + filtr podpisu mówcy. Próg kalibrowany z Twoich 3 nagrań, detektor uczy się fałszywych trafień. Niskie zużycie: w ciszy samo liczenie energii, jeden wspólny `AudioRecord`, brak wakelocka, tryb ECO. Działa w tle i **nad ekranem blokady**. |
 | **Tło** | Foreground service (typ `microphone`) z `START_STICKY`; po restarcie telefonu (i po aktualizacji aplikacji) nasłuch wznawia się sam, a **przypomnienia są odtwarzane** z bazy (AlarmManager czyści alarmy przy restarcie). |
 | **Odporność mikrofonu** | Jeśli mikrofon zabierze rozmowa telefoniczna albo inna aplikacja, NIXI **nie gubi nasłuchu** — odkłada próbę i wraca do pracy (backoff, raport na ekranie głównym). |
 | **Przezroczystość** | Każde niewidoczne działanie (zapis do pamięci, ciche reguły, edycje w tle, DDL) → **krótkie powiadomienie**. |
@@ -85,7 +85,7 @@ Ta wersja nie dodaje nowych „modułów” — porządkuje i utwardza to, co ju
 - Nowa sekcja **„Telefon: praca w tle (Xiaomi/HyperOS)”** w Ustawieniach: bateria bez ograniczeń, autostart, edytor uprawnień HyperOS, wezwanie na pełnym ekranie — z podglądem stanu, który odświeża się po powrocie z ustawień systemowych.
 - Logi mają większe pola dotyku, ekran główny pokazuje stan sesji, zużycie tokenów i ewentualny problem z mikrofonem.
 
-**Testy:** CI uruchamia testy jednostkowe (`testDebugUnitTest`) dla logiki czasu (formaty, wątki, granice dnia), TPM, DTW wake-worda, odczytu dat przypomnień i współrzędnych trybu ręcznego — oprócz budowania APK.
+**Testy:** CI uruchamia testy jednostkowe (`testDebugUnitTest`) dla logiki czasu (formaty, wątki, granice dnia), TPM, frontendu mel (FFT/mel/podpis), bufora i bramki mowy, całej kaskady na syntetycznej frazie (rozpoznaje swoją frazę, nie reaguje na inne słowa, ciszę i szum), odczytu dat przypomnień i współrzędnych trybu ręcznego — oprócz budowania APK.
 
 ---
 
@@ -179,7 +179,7 @@ dev.nixi/
 ├─ NixiApp, NixiState          # stan globalny (kula, sesja, tokeny, pending akcje)
 ├─ audio/                      # AudioBus (jeden mikrofon, odporny na błędy),
 │                               # AudioPlayer (24 kHz, RMS→kula), MediaPauseController
-├─ wake/                       # WakeEngine (offline DTW), WakeWordService, EnrollmentController
+├─ wake/                       # MelFrontend, VadGate, PcmRing, WakeEngine (kaskada), WakeWordService, EnrollmentController
 ├─ live/                       # GeminiLiveClient (WS BidiGenerateContent),
 │                               # LiveSessionService (sesja + narzędzia + TPM),
 │                               # SystemPromptBuilder, TpmGuard, PostSessionMemory
@@ -204,17 +204,56 @@ dev.nixi/
 i powiadomienie. Tryb `eco` = 45K. Limit da się podnieść/zmniejszyć w
 Ustawieniach (albo wyłączyć).
 
-### Wake-word — jak działa offline
+### Wake-word — dwustopniowa kaskada jak w hotwordzie Google
 
-1. PCM 16 kHz → klatki 20 ms (hop 10/20 ms),
-2. 16 pasm mel (Goertzel) → cecha = log-wzrost nad adaptacyjną podłogą szumu,
-3. bramka „czy padła mowa” — DTW (Sakoe-Chiba) uruchamia się **tylko wtedy**,
-4. dopasowanie do szablonu z Twojej 3-krotnej rejestracji, próg kalibrowany
-   z odległości między próbami,
-5. cooldown 12 s, wyzwanie → pauza multimediów → sesja Live → kula w rogu.
+Detektor odwzorowuje publicznie opisaną architekturę hotwordu Google
+(„A Cascade Architecture for Keyword Spotting on Mobile Devices”, NIPS 2017):
+zawsze włączony **tani pierwszy stopień** decyduje, czy w ogóle warto liczyć
+cokolwiek droższego, a **drugi stopień** (plus filtr mówcy) rozstrzyga ostatecznie.
 
-W ustawieniach: czułość 0–100%, tryb ECO (8 pasm, hop 20 ms) i statystyki
-`ms CPU / minutę nasłuchu`.
+1. **Bufor 2 s PCM 16 kHz** (`PcmRing`, 64 kB — tyle samo, ile Google rezerwuje
+   na DSP) i **bramka mowy** na energii ramki. W ciszy nie liczymy nic poza
+   energią: brak FFT, brak alokacji, brak DTW. Bramka ma histerezę (9 dB
+   otwarcie / 4 dB zamknięcie, 300 ms wygaszenia) i uczy się podłogi szumu
+   otoczenia, więc działa tak samo w cichym pokoju i w autobusie.
+2. **Frontend log-mel**: preemfaza 0,97 → okno Hamminga 25 ms → FFT 512 →
+   16 trójkątnych filtrów mel (40–7600 Hz) → logarytm energii. Zgodnie z pracą:
+   „the log of the triangular mel filters applied to the power spectra”.
+3. **Nadrabianie z bufora (pre-roll)**: gdy bramka się otworzy, klatki sprzed
+   otwarcia liczymy **wstecz z bufora 2 s**, więc pierwsza sylaba nigdy nie
+   wypada — dokładnie po to Google trzyma bufor „enough audio to safely fit
+   the keyword”.
+4. **Pierwszy stopień** (ma być czuły, nie musi być precyzyjny): DTW na
+   8 kanałach (pasma złożone parami) co 30–60 ms, jeden szablon referencyjny,
+   luźny próg. Uruchamia się **tylko na klatkach mowy**.
+5. **Drugi stopień** (dopiero po kandydacie): DTW na pełnych 16 kanałach,
+   przeciwko **wszystkim 3 nagraniom**, z automatycznym doborem długości okna
+   (0,8 / 1,0 / 1,2 × szablon — bo tempo mowy bywa różne) i normalizacją CMVN.
+6. **Trzeci filtr — podpis mówcy**: z 3 nagrań liczymy długoterminowy profil
+   widma (LTAS) i próg podobieństwa kosinusowego; kandydat o innym profilu
+   odpada. Google: „reduce the overall FAR by a factor of 5 to 10 while adding
+   less than 1% absolute additional FRR”. Dodatkowo detektor **uczy się**
+   fałszywych trafień: kandydat, który przeszedł drugi stopień, ale nie doczekał
+   się potwierdzenia, zapisuje swój podpis na listę negatywów.
+7. **Potwierdzenie i kwarantanna**: potrzebne są dwa dobre trafienia drugiego
+   stopnia w odstępie ≥100 ms (odpowiednik wygładzania posteriorów po oknie
+   w dekoderze Google), potem 12 s cooldownu, pauza multimediów → sesja Live →
+   kula w rogu.
+
+Progi nie są liczbami z sufitu: rozrzut między **Twoimi własnymi** próbami
+(rejestracja 3×) ustala skalę — im stabilniej mówisz, tym ostrzejszy próg.
+Rozrzut jest ograniczony z góry (żeby trzy bardzo różne nagrania nie zrobiły
+z detektora przepuszczalnego sitka) i z dołu (żeby identyczne nagrania nie
+dały progu zerowego).
+
+W ustawieniach: czułość 0–100%, tryb ECO (hop 20 ms = o połowę mniej FFT
+i ocen drugiego stopnia) oraz statystyki detektora w logach
+(`wake.stats`: ramki ciszy/mowy, kandydaci, ile odrzucił drugi stopień, podpis,
+negatywy, trafienia).
+
+**Po aktualizacji z v1.1.0 trzeba nagrać „Hej Nixi” ponownie** — stary szablon
+był zbudowany na innych cechach (Goertzel) niż nowy frontend mel. Aplikacja to
+wykryje, pokaże prośbę o rejestrację i nie będzie udawać, że nasłuchuje.
 
 ---
 
