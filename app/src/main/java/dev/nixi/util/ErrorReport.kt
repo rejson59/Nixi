@@ -52,8 +52,13 @@ object ErrorReport {
     }
 
     fun snapshot(): String = buildString {
-        append("NIXI ").append(dev.nixi.BuildConfig.VERSION_NAME)
-        append(" (").append(dev.nixi.BuildConfig.VERSION_CODE).append(")\n")
+        val ver = runCatching {
+            val ctx = dev.nixi.NixiApp.ctx()
+            val p = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
+            val code = if (android.os.Build.VERSION.SDK_INT >= 28) p.longVersionCode else @Suppress("DEPRECATION") p.versionCode.toLong()
+            "${p.versionName} ($code)"
+        }.getOrDefault("?")
+        append("NIXI ").append(ver).append('\n')
         val reason = runCatching { LocalStore.lastSessionReason }.getOrDefault("")
         if (reason.isNotBlank()) {
             append("ostatnia sesja: ").append(reason)
