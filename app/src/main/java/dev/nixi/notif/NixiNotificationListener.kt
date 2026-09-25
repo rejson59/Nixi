@@ -64,7 +64,10 @@ class NixiNotificationListener : NotificationListenerService() {
         for (rule in rules) {
             if (!rule.optBoolean("active", true)) continue
             val pkg = rule.optString("app_package")
-            if (pkg.isNotBlank() && pkg != sbn.packageName) continue
+            if (pkg.isNotBlank() && pkg != sbn.packageName) {
+                val diary = DiaryApps.matches(this, sbn.packageName)
+                if (!(diary && pkg.lowercase().contains("vulcan"))) continue
+            }
             val contains = rule.optString("contains").lowercase()
             if (contains.isNotBlank() && !body.lowercase().contains(contains)) continue
 

@@ -96,6 +96,7 @@ object CalendarTools {
         notes.takeIf { it.isNotBlank() }?.let { row.put("notes", it) }
         kind.takeIf { it.isNotBlank() }?.let { row.put("kind", normKind(it)) }
         if (row.length() == 0) return ToolResult.fail("Brak pól do edycji.")
+        row.put("manual", true)
         val r = runCatching {
             SupabaseHub.updateRow(Tables.CALENDAR, mapOf("id" to "eq.$id"), row)
         }.getOrNull() ?: return ToolResult.fail("Błąd edycji.")

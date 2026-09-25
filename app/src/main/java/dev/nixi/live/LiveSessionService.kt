@@ -625,7 +625,7 @@ class LiveSessionService : Service() {
         override fun onInputTranscript(text: String) {
             if (text.isNotBlank()) {
                 transcripts.add("user" to text)
-                NixiState.lastHeard.value = text.take(120)
+                NixiState.lastHeard.value = text.take(400)
                 lastUserActivity = System.currentTimeMillis()
             }
         }
@@ -633,7 +633,7 @@ class LiveSessionService : Service() {
         override fun onOutputTranscript(text: String) {
             if (text.isNotBlank()) {
                 transcripts.add("nixi" to text)
-                NixiState.lastSaid.value = text.take(120)
+                NixiState.lastSaid.value = text.take(400)
             }
         }
 

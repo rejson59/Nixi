@@ -199,6 +199,7 @@ fun ConversationUi(
     val lastTool by NixiState.lastToolLine.collectAsState()
     val lastHeard by NixiState.lastHeard.collectAsState()
     val lastSaid by NixiState.lastSaid.collectAsState()
+    var transcriptOpen by remember { mutableStateOf(false) }
     val sessionError by NixiState.lastSessionError.collectAsState()
     val pendingSql by NixiState.pendingSql.collectAsState()
     val tpm by NixiState.tpm.collectAsState()
@@ -286,11 +287,14 @@ fun ConversationUi(
                             }
                             if (lastHeard.isNotBlank() || lastSaid.isNotBlank()) {
                                 Spacer(Modifier.height(4.dp))
-                                if (lastHeard.isNotBlank()) {
-                                    Text("Ty: $lastHeard", color = NixiTextDim, fontSize = 11.sp, maxLines = 1)
-                                }
-                                if (lastSaid.isNotBlank()) {
-                                    Text("NIXI: $lastSaid", color = NixiTextDim, fontSize = 11.sp, maxLines = 1)
+                                val lines = if (transcriptOpen) 8 else 1
+                                Column(Modifier.clickable { transcriptOpen = !transcriptOpen }) {
+                                    if (lastHeard.isNotBlank()) {
+                                        Text("Ty: $lastHeard", color = NixiTextDim, fontSize = 11.sp, maxLines = lines)
+                                    }
+                                    if (lastSaid.isNotBlank()) {
+                                        Text("NIXI: $lastSaid", color = NixiTextDim, fontSize = 11.sp, maxLines = lines)
+                                    }
                                 }
                             }
                             if (lastTool.isNotBlank()) {

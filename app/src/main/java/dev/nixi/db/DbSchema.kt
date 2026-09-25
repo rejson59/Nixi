@@ -107,6 +107,7 @@ object DbSchema {
                 Col("location", "text"),
                 Col("notes", "text"),
                 Col("kind", "text default 'normal'"),
+                Col("manual", "boolean default false"),
                 Col("created_at", NOW),
             )
         ),

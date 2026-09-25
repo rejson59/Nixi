@@ -76,8 +76,10 @@ object ConfigSync {
     }
 
     fun saveLocal(ctx: Context) {
-        runCatching { localFile(ctx).writeText(snapshot().toString()) }
-        runCatching { saveDownloads(ctx) }
+        val blob = runCatching { ConfigCrypto.wrap(snapshot().toString()) }
+            .getOrElse { snapshot().toString() }
+        runCatching { localFile(ctx).writeText(blob) }
+        runCatching { saveDownloads(ctx, blob) }
     }
 
     fun persistSoon(ctx: Context) {
@@ -85,8 +87,12 @@ object ConfigSync {
         dev.nixi.NixiApp.scope.launch { runCatching { pushCloud() } }
     }
 
-    private fun saveDownloads(ctx: Context) {
-        val body = snapshot().toString()
+    private fun parseJson(raw: String): JSONObject? {
+        val plain = runCatching { ConfigCrypto.unwrap(raw) }.getOrDefault(raw)
+        return runCatching { JSONObject(plain) }.getOrNull()
+    }
+
+    private fun saveDownloads(ctx: Context, body: String) {
         if (Build.VERSION.SDK_INT >= 29) {
             val cr = ctx.contentResolver
             val existing = cr.query(
@@ -124,7 +130,7 @@ object ConfigSync {
     fun restoreLocal(ctx: Context): Boolean {
         val f = localFile(ctx)
         if (f.isFile) {
-            val o = runCatching { JSONObject(f.readText()) }.getOrNull()
+            val o = parseJson(f.readText())
             if (o != null) {
                 apply(o)
                 return true
@@ -154,14 +160,14 @@ object ConfigSync {
                     )
                     val txt = cr.openInputStream(uri)?.use { s -> s.readBytes().decodeToString() }
                         ?: return null
-                    JSONObject(txt)
+                    parseJson(txt)
                 }
             } else {
                 val f = File(
                     Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
                     FILE,
                 )
-                if (!f.isFile) null else JSONObject(f.readText())
+                if (!f.isFile) null else parseJson(f.readText())
             }
         } catch (_: Throwable) {
             null

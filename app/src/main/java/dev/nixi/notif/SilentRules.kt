@@ -66,6 +66,8 @@ object SilentRules {
         var changed = 0
         for (e in events) {
             val eTitle = e.optString("title").lowercase()
+            if (e.optBoolean("manual", false)) continue
+            if (e.optString("notes").contains("[ręcznie]")) continue
             if (e.optString("kind", "normal") == kind) continue
             val subj = subject.lowercase()
             val match = subj.isNotEmpty() &&

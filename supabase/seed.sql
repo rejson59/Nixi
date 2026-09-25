@@ -119,6 +119,7 @@ create table if not exists public.calendar_events (
   location text,
   notes text,
   kind text default 'normal',
+  manual boolean default false,
   created_at timestamptz default now()
 );
 alter table public.calendar_events add column if not exists id bigint generated always as identity primary key;
@@ -128,6 +129,7 @@ alter table public.calendar_events add column if not exists end timestamptz;
 alter table public.calendar_events add column if not exists location text;
 alter table public.calendar_events add column if not exists notes text;
 alter table public.calendar_events add column if not exists kind text default 'normal';
+alter table public.calendar_events add column if not exists manual boolean default false;
 alter table public.calendar_events add column if not exists created_at timestamptz default now();
 alter table public.calendar_events enable row level security;
 drop policy if exists nixi_all on public.calendar_events;
