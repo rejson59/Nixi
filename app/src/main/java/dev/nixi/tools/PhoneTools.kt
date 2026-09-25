@@ -35,7 +35,8 @@ object PhoneTools {
             "web", "szukaj", "search", "url" -> web(value)
             "maps", "nawigacja", "navigate" -> maps(value)
             "clipboard", "schowek" -> clipboard(value, extra)
-            "dial", "dzwon", "call" -> dial(value)
+            "dial", "dzwon" -> dial(value, callNow = false)
+            "call", "polacz", "połącz" -> dial(value, callNow = true)
             "sms", "wiadomosc", "wiadomość" -> sms(value, extra)
             "share", "udostepnij", "udostępnij" -> share(value)
             "ringer", "dzwonek", "tryb" -> ringer(value)
@@ -50,11 +51,14 @@ object PhoneTools {
             "inbox", "smsy", "wiadomosci" -> inbox()
             "location", "lokalizacja", "gdzie" -> location()
             "wifi", "wi-fi" -> wifi()
+            "dnd", "nieprzeszkadzac", "cicho" -> openSettings("dnd")
+            "hotspot" -> openSettings("hotspot")
             "report", "raport" -> report()
+            "backup", "kopia" -> LifeTools.dumpBackup()
             else -> ToolResult.fail(
                 "Nie znam akcji „$action”. Dostępne: status, volume, brightness, torch, " +
                     "timer, web, maps, clipboard, dial, sms, share, ringer, screenshot, " +
-                    "lock, apps, settings, vibrate, find, contacts, inbox, location, wifi, report."
+                    "lock, apps, settings, vibrate, find, contacts, inbox, location, wifi, report, call, dnd, backup."
             )
         }
     } catch (t: Throwable) {
@@ -195,11 +199,31 @@ object PhoneTools {
         }
     }
 
-    private fun dial(value: String): ToolResult {
+    private fun dial(value: String, callNow: Boolean): ToolResult {
         val n = value.trim()
         if (n.isBlank()) return ToolResult.fail("Podaj numer.")
-        launch(Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + n.filter { it.isDigit() || it == '+' })))
-        return ToolResult.ok("Otworzyłam dialer: $n. Potwierdź połączenie na telefonie.")
+        val tel = n.filter { it.isDigit() || it == '+' }
+        val uri = Uri.parse("tel:$tel")
+        if (callNow && PermAsk.call()) {
+            launch(Intent(Intent.ACTION_CALL, uri))
+            clickSoon(listOf("Zadzwoń", "Call", "Połącz"))
+            return ToolResult.ok("Łączę z $n.")
+        }
+        launch(Intent(Intent.ACTION_DIAL, uri))
+        clickSoon(listOf("Zadzwoń", "Call", "Połącz"))
+        return ToolResult.ok(
+            if (callNow) "Potrzebuję zgody na połączenia — otworzyłam dialer. Potwierdź „Zadzwoń” albo daj uprawnienie i powtórz."
+            else "Otworzyłam dialer: $n. Klikam „Zadzwoń”, jeśli widać przycisk."
+        )
+    }
+
+    private fun clickSoon(labels: List<String>) {
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            val acc = NixiAccessibilityService.instance ?: return@postDelayed
+            for (l in labels) {
+                if (acc.clickText(l) != null) return@postDelayed
+            }
+        }, 900)
     }
 
     private fun sms(to: String, body: String): ToolResult {
@@ -208,7 +232,8 @@ object PhoneTools {
         val i = Intent(Intent.ACTION_SENDTO, uri)
         if (body.isNotBlank()) i.putExtra("sms_body", body)
         launch(i)
-        return ToolResult.ok("Otworzyłam SMS do $to — wyślij z aplikacji wiadomości.")
+        clickSoon(listOf("Wyślij", "Send", "SMS"))
+        return ToolResult.ok("Otworzyłam SMS do $to — klikam Wyślij, jeśli widać przycisk.")
     }
 
     private fun share(value: String): ToolResult {
@@ -280,6 +305,8 @@ object PhoneTools {
             "bt", "bluetooth" -> Settings.ACTION_BLUETOOTH_SETTINGS
             "sound", "dźwięk", "dzwiek" -> Settings.ACTION_SOUND_SETTINGS
             "battery", "bateria" -> Settings.ACTION_BATTERY_SAVER_SETTINGS
+            "dnd", "nieprzeszkadzac" -> Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS
+            "hotspot" -> Settings.ACTION_WIRELESS_SETTINGS
             "apps", "aplikacje" -> Settings.ACTION_APPLICATION_SETTINGS
             "display", "ekran" -> Settings.ACTION_DISPLAY_SETTINGS
             "date", "czas" -> Settings.ACTION_DATE_SETTINGS
@@ -323,21 +350,9 @@ object PhoneTools {
         return ToolResult.ok("Wibracja.")
     }
 
-    private fun needPerm(perm: String, label: String): Boolean {
-        val ctx = ToolContext.app
-        return androidx.core.content.ContextCompat.checkSelfPermission(ctx, perm) ==
-            android.content.pm.PackageManager.PERMISSION_GRANTED
-    }
-
-    private fun askPerm(label: String): ToolResult {
-        val ctx = ToolContext.app
-        launch(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + ctx.packageName)))
-        return ToolResult.fail("Włącz uprawnienie ($label) w oknie aplikacji, potem powtórz.")
-    }
-
     private fun contacts(query: String): ToolResult {
-        if (!needPerm(android.Manifest.permission.READ_CONTACTS, "kontakty")) {
-            return askPerm("kontakty")
+        if (!PermAsk.contacts()) {
+            return ToolResult.fail("Potrzebuję kontaktów — zatwierdź dialog i powtórz.")
         }
         val q = query.trim().lowercase()
         val cr = ToolContext.app.contentResolver
@@ -363,7 +378,7 @@ object PhoneTools {
     }
 
     private fun inbox(): ToolResult {
-        if (!needPerm(android.Manifest.permission.READ_SMS, "SMS")) return askPerm("SMS")
+        if (!PermAsk.sms()) return ToolResult.fail("Potrzebuję SMS — zatwierdź dialog i powtórz.")
         val cur = ToolContext.app.contentResolver.query(
             Uri.parse("content://sms/inbox"),
             arrayOf("address", "body", "date"),
@@ -382,9 +397,7 @@ object PhoneTools {
     }
 
     private fun location(): ToolResult {
-        if (!needPerm(android.Manifest.permission.ACCESS_FINE_LOCATION, "lokalizacja") &&
-            !needPerm(android.Manifest.permission.ACCESS_COARSE_LOCATION, "lokalizacja")
-        ) return askPerm("lokalizacja")
+        if (!PermAsk.location()) return ToolResult.fail("Potrzebuję lokalizacji — zatwierdź dialog i powtórz.")
         val lm = ToolContext.app.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
         val loc = listOf(
             android.location.LocationManager.GPS_PROVIDER,

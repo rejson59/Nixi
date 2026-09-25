@@ -1,6 +1,7 @@
 package dev.nixi.ui
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -68,6 +69,10 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { }
 
+    private val multiPerms = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (Build.VERSION.SDK_INT >= 33 &&
@@ -76,6 +81,7 @@ class MainActivity : ComponentActivity() {
         ) {
             notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
+        askFromIntent(intent)
         setContent {
             NixiTheme {
                 Box(
@@ -87,6 +93,17 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        askFromIntent(intent)
+    }
+
+    private fun askFromIntent(intent: Intent?) {
+        val perms = intent?.getStringArrayExtra(dev.nixi.tools.PermAsk.EXTRA) ?: return
+        if (perms.isNotEmpty()) multiPerms.launch(perms)
     }
 
     override fun onResume() {

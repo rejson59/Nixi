@@ -338,6 +338,9 @@ i tak działa niezależnie od wywołania długim przytrzymaniem).
 
 ## Historia zmian (skrót)
 
+- **1.4.1** — połączenie z kliknięciem Zadzwoń, dialogi uprawnień, kolejka
+  offline dla list, kopia w Pobranych, TPM mówi o pauzie, plan lekcji,
+  tłumaczenie, większy „Zakończ” na pigułce.
 - **1.4.0** — listy życia (todos/zakupy/ludzie), kontakty/SMS/lokalizacja
   (uprawnienia przy użyciu), klik po tekście, sesja 20 s / 50 s, rutyna
   ranna, watchdog z powiadomieniem, raport „Wyślij”, zgoda ekranu zostaje.

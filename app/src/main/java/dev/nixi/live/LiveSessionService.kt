@@ -479,6 +479,16 @@ class LiveSessionService : Service() {
                         NixiState.orbState.value = NixiState.OrbState.TPM_LIMIT
                         NixiState.emit(NixiState.NixiEvent.TpmLimited("Limit TPM — chwilowa pauza"))
                         LogBus.log("tpm.throttle", "pauza nadawania", "warn")
+                        val wait = tpm.backoffSec().coerceAtLeast(15)
+                        sendTextCounted(
+                            "Limit tokenów na minutę. Powiedz użytkownikowi jednym zdaniem, " +
+                                "że pauza trwa około ${wait}s i zaraz wrócisz."
+                        )
+                        ActionNotifier.notify(
+                            this@LiveSessionService, "NIXI",
+                            "Limit tokenów — pauza ok. ${wait}s.",
+                            short = true
+                        )
                     }
                     publishTpm()
                     return

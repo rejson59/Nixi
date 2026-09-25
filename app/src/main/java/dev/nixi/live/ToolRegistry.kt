@@ -53,9 +53,9 @@ object ToolRegistry {
         add("open_app", "Otwórz aplikację telefonu po nazwie.", mapOf("app" to s("nazwa aplikacji")), listOf("app"))
         add(
             "phone",
-            "Sterowanie telefonem. Akcje: status, volume, brightness, torch, timer, web, maps, clipboard, dial, sms, share, ringer, screenshot, lock, apps, settings, vibrate, find, contacts, inbox, location, wifi, report.",
+            "Sterowanie telefonem. Akcje: status, volume, brightness, torch, timer, web, maps, clipboard, dial, call, sms, share, ringer, screenshot, lock, apps, settings, vibrate, find, contacts, inbox, location, wifi, dnd, backup, report.",
             mapOf(
-                "action" to s("status|volume|brightness|torch|timer|web|maps|clipboard|dial|sms|share|ringer|screenshot|lock|apps|settings|vibrate|find|contacts|inbox|location|wifi|report"),
+                "action" to s("status|volume|brightness|torch|timer|web|maps|clipboard|dial|call|sms|share|ringer|screenshot|lock|apps|settings|vibrate|find|contacts|inbox|location|wifi|dnd|backup|report"),
                 "value" to s("np. 50, mute, 5 min, numer, zapytanie, on/off"),
                 "extra" to s("opcjonalnie: strumień (music/ring), treść SMS, etykieta minutnika"),
             ),
@@ -63,7 +63,7 @@ object ToolRegistry {
         )
         add(
             "lookup",
-            "Sama znajdź odpowiedź (pogoda, fakt z Wikipedii, szybkie liczenie). NIE otwieraj przeglądarki — użytkownik ma usłyszeć wynik.",
+            "Sama znajdź odpowiedź (pogoda, Wikipedia, liczenie, tłumaczenie). NIE otwieraj przeglądarki.",
             mapOf("query" to s("pytanie, miasto, wyrażenie")),
             listOf("query"),
         )
@@ -167,10 +167,10 @@ object ToolRegistry {
             mapOf("text" to s("tekst na ekranie")), listOf("text"))
         add(
             "life",
-            "Listy życia: zadania, zakupy, ludzie, praca domowa. Akcje list/add/done.",
+            "Listy życia: zadania, zakupy, ludzie, notatki, plan lekcji, kopia. Akcje list/add/done/backup.",
             mapOf(
-                "action" to s("list|add|done"),
-                "kind" to s("todo|shopping|people|homework"),
+                "action" to s("list|add|done|backup"),
+                "kind" to s("todo|shopping|people|homework|notes|lessons"),
                 "title" to s("tresc / imie / produkt"),
                 "extra" to s("kategoria, ilosc, relacja"),
             ),

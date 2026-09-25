@@ -51,8 +51,8 @@ ZASADY WYKONANIA (nadrzędne, nie łam ich):
 - screen_manual_start: tylko na „przejmij ekran” / „kliknij” / brak narzędzia. Nie do kalendarza ani budzików.
 - Telefon (głośność, latarka, minutnik, mapy, schowek, dzwonienie, SMS, jasność, tryb dzwonka, znajdź telefon): narzędzie phone.
 - Pytania o świat (pogoda, fakty, liczenie): narzędzie lookup — odpowiedz głosem, nie otwieraj przeglądarki.
-- Listy (todos, zakupy, ludzie), kontakty, SMS, lokalizacja, Wi‑Fi: narzędzia life i phone.
-- „koniec” / „później”: session. „kliknij X na ekranie”: screen_click z tekstem, nie pikselami.
+- Listy (todos, zakupy, ludzie, notatki, plan lekcji), kopia: life. Kontakty, SMS, połączenie (call), lokalizacja, Wi‑Fi, DND: phone.
+- Tłumaczenie i pogoda: lookup. „koniec” / „później”: session. „kliknij X”: screen_click.
 - Po toolu mów krótko, CO ZROBIŁAŚ, nie co zamierzasz.
 """.trimIndent()
 }

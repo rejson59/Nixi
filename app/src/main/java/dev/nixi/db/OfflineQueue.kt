@@ -23,6 +23,7 @@ object OfflineQueue {
     const val TYPE_FACT = "fact"
     const val TYPE_CONVERSATION = "conversation"
     const val TYPE_LOG = "log"
+    const val TYPE_ROW = "row"
 
     private val lock = Any()
 
@@ -103,6 +104,13 @@ object OfflineQueue {
             TYPE_LOG -> {
                 val row = p.optJSONObject("row") ?: return true
                 val table = p.optString("table", Tables.LOGS)
+                SupabaseHub.c().insert(table, row).ok
+            }
+
+            TYPE_ROW -> {
+                val table = p.optString("table")
+                val row = p.optJSONObject("row") ?: return true
+                if (table.isBlank()) return true
                 SupabaseHub.c().insert(table, row).ok
             }
 

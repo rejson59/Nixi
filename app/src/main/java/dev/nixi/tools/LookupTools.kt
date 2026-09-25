@@ -24,10 +24,33 @@ object LookupTools {
         tryMath(q)?.let { return ToolResult.ok(it) }
         val low = q.lowercase()
         return try {
-            if (isWeather(low)) weather(q) else fact(q)
+            if (isTranslate(low)) translate(q)
+            else if (isWeather(low)) weather(q)
+            else fact(q)
         } catch (t: Throwable) {
             ToolResult.fail("Nie doszłam do sieci: ${t.message}")
         }
+    }
+
+    private fun isTranslate(q: String) =
+        q.contains("przetłumacz") || q.contains("przetlumacz") ||
+            q.contains("translate") || q.contains("po angielsku") || q.contains("po polsku")
+
+    private fun translate(q: String): ToolResult {
+        val pair = when {
+            q.contains("po polsku") || q.contains("to polish") -> "en|pl"
+            else -> "pl|en"
+        }
+        val cleaned = q.replace(
+            Regex("(?i)przetłumacz|przetlumacz|translate|na angielski|po angielsku|po polsku|na polski"),
+            " ",
+        ).trim().ifBlank { q }
+        val url = "https://api.mymemory.translated.net/get?q=" + enc(cleaned) + "&langpair=$pair"
+        val body = get(url) ?: return ToolResult.fail("Nie mam teraz tłumaczenia.")
+        val js = runCatching { JSONObject(body) }.getOrNull()
+        val text = js?.optJSONObject("responseData")?.optString("translatedText").orEmpty()
+        if (text.isBlank()) return ToolResult.fail("Puste tłumaczenie.")
+        return ToolResult.ok(text.take(400))
     }
 
     private fun isWeather(q: String) =

@@ -100,6 +100,7 @@ object ReminderTools {
         val intent = Intent(ctx, ReminderReceiver::class.java).apply {
             putExtra(ReminderReceiver.EXTRA_ID, id)
             putExtra(ReminderReceiver.EXTRA_TITLE, title)
+            putExtra(ReminderReceiver.EXTRA_WHEN, fmt.format(Date(atMillis)))
         }
         val pi = PendingIntent.getBroadcast(
             ctx, id.toInt(), intent,

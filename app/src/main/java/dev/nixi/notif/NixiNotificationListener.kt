@@ -83,7 +83,14 @@ class NixiNotificationListener : NotificationListenerService() {
 
         when (type) {
             "calendar_substitution" -> {
-                val subject = action.optString("subject", text.trim()).ifBlank { title.trim() }
+                val body = "$title $text"
+                val extracted = Regex(
+                    """zastępstw[oa]\s*[:\-–]?\s*(.+)""",
+                    RegexOption.IGNORE_CASE,
+                ).find(body)?.groupValues?.get(1)?.trim()?.take(80)
+                val subject = action.optString("subject").ifBlank {
+                    extracted ?: text.trim().ifBlank { title.trim() }
+                }
                 if (subject.isBlank()) return
                 val (isoStart, isoEnd) = dev.nixi.util.TimeUtils.todayWindow()
                 val events = SupabaseHub.calendarEventsBetween(isoStart, isoEnd)
