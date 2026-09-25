@@ -268,7 +268,7 @@ class LiveSessionService : Service() {
             val manual = NixiState.manualMode.value
             val w = if (manual) resources.displayMetrics.widthPixels else 0
             val h = if (manual) resources.displayMetrics.heightPixels else 0
-            val prompt = withTimeoutOrNull(4500) { SystemPromptBuilder.build(w, h) }
+            val prompt = withTimeoutOrNull(1800) { SystemPromptBuilder.build(w, h) }
                 ?: "Jesteś NIXI, osobistą asystentką. Mów po polsku, zwięźle."
             if (ended.get()) return@launch
             promptText = prompt
@@ -526,19 +526,16 @@ class LiveSessionService : Service() {
         idleJob = scope.launch {
             while (running && !ended.get()) {
                 delay(5000)
-                val idle = System.currentTimeMillis() - lastUserActivity
+                val last = maxOf(lastUserActivity, NixiState.sessionKeepAliveAt)
+                val idle = System.currentTimeMillis() - last
                 val inManual = NixiState.manualMode.value
-                if (idle > 5 * 60_000 && !inManual) {
-                    endSession("bezczynność (5 min)")
+                if (idle > 50_000 && !inManual) {
+                    endSession("bezczynność (50 s)")
                     break
                 }
-                if (idle > 60_000 && !inManual && !manuallyReminded && NixiState.orbState.value != NixiState.OrbState.SPEAKING) {
+                if (idle > 20_000 && !inManual && !manuallyReminded && NixiState.orbState.value != NixiState.OrbState.SPEAKING) {
                     manuallyReminded = true
-                    ActionNotifier.notify(
-                        this@LiveSessionService, "NIXI",
-                        "Sesja wciąż działa, ale nic nie mówisz. Powiedz „koniec” albo dotknij kuli, aby zakończyć.",
-                        short = true
-                    )
+                    sendTextCounted("Użytkownik milczy od 20 sekund. Zapytaj jednym zdaniem, czy kończyć, albo czekaj.")
                 }
             }
         }
@@ -835,8 +832,9 @@ class LiveSessionService : Service() {
                 // 4) muzyka
                 runCatching { MediaPauseController.resumeAll() }
                 if (LocalStore.dingEnabled) playDing(dev.nixi.R.raw.ding_stop)
-                // 5) tryb ręczny zawsze zamykamy z sesją
-                runCatching { ScreenCaptureService.stop(this@LiveSessionService) }
+                // 5) tryb ręczny zamykamy, ale zgoda MediaProjection zostaje
+                //    (kolejna sesja nie pyta ponownie, dopóki usługa żyje).
+                NixiState.manualMode.value = false
                 ActionNotifier.notify(
                     this@LiveSessionService, "NIXI: rozmowa zakończona",
                     "Powód: $reason • czas: ${duration / 60} min ${duration % 60} s",

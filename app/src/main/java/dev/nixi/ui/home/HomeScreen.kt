@@ -164,6 +164,19 @@ fun HomeScreen() {
                             },
                         )
                         PillButton(
+                            text = "Wyślij",
+                            filled = false,
+                            onClick = {
+                                val snap = dev.nixi.util.ErrorReport.snapshot()
+                                val i = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(android.content.Intent.EXTRA_TEXT, snap)
+                                    putExtra(android.content.Intent.EXTRA_SUBJECT, "NIXI raport")
+                                }
+                                context.startActivity(android.content.Intent.createChooser(i, "Raport NIXI"))
+                            },
+                        )
+                        PillButton(
                             text = "Wyczyść",
                             filled = false,
                             onClick = { dev.nixi.util.ErrorReport.clear() },

@@ -338,6 +338,9 @@ i tak działa niezależnie od wywołania długim przytrzymaniem).
 
 ## Historia zmian (skrót)
 
+- **1.4.0** — listy życia (todos/zakupy/ludzie), kontakty/SMS/lokalizacja
+  (uprawnienia przy użyciu), klik po tekście, sesja 20 s / 50 s, rutyna
+  ranna, watchdog z powiadomieniem, raport „Wyślij”, zgoda ekranu zostaje.
 - **1.3.9** — karta „Do zgłoszenia”: krótki, kopiowalny raport ostatnich
   prawdziwych błędów (wersja, sesja, 5 wpisów) — bez szumu ostrzeżeń.
 - **1.3.8** — pigułka nie blokuje kliknięć w aplikację pod spodem (overlay

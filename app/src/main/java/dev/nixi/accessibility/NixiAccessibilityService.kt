@@ -111,6 +111,53 @@ class NixiAccessibilityService : AccessibilityService() {
         return svc.performGlobalAction(action)
     }
 
+    /** Kliknij pierwszy widoczny element z tym tekstem / opisem. */
+    fun clickText(query: String): String? {
+        val svc = instance ?: return null
+        val root = svc.rootInActiveWindow ?: return null
+        val q = query.trim()
+        if (q.isBlank()) {
+            root.recycle()
+            return null
+        }
+        try {
+            val found = root.findAccessibilityNodeInfosByText(q)
+            for (n in found.orEmpty()) {
+                if (clickNode(n)) return (n.text ?: n.contentDescription)?.toString() ?: q
+            }
+            val hit = walkClick(root, q.lowercase())
+            if (hit != null) return hit
+        } finally {
+            root.recycle()
+        }
+        return null
+    }
+
+    private fun walkClick(node: AccessibilityNodeInfo, q: String): String? {
+        val t = (node.text?.toString() ?: "") + " " + (node.contentDescription?.toString() ?: "")
+        if (t.lowercase().contains(q) && clickNode(node)) return t.trim()
+        for (i in 0 until node.childCount) {
+            val c = node.getChild(i) ?: continue
+            val r = walkClick(c, q)
+            c.recycle()
+            if (r != null) return r
+        }
+        return null
+    }
+
+    private fun clickNode(n: AccessibilityNodeInfo): Boolean {
+        var cur: AccessibilityNodeInfo? = n
+        var hops = 0
+        while (cur != null && hops < 8) {
+            if (cur.isClickable) {
+                return cur.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            }
+            cur = cur.parent
+            hops++
+        }
+        return false
+    }
+
     fun typeText(text: String): Boolean {
         val svc = instance ?: return false
         val root = svc.rootInActiveWindow ?: return false

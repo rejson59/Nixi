@@ -46,10 +46,15 @@ object PhoneTools {
             "vibrate", "wibruj" -> vibrate()
             "find", "znajdz", "znajdź" -> findPhone()
             "notifications_clear", "wycisc", "wyczyść" -> clearNotifications()
+            "contacts", "kontakty" -> contacts(value)
+            "inbox", "smsy", "wiadomosci" -> inbox()
+            "location", "lokalizacja", "gdzie" -> location()
+            "wifi", "wi-fi" -> wifi()
+            "report", "raport" -> report()
             else -> ToolResult.fail(
                 "Nie znam akcji „$action”. Dostępne: status, volume, brightness, torch, " +
                     "timer, web, maps, clipboard, dial, sms, share, ringer, screenshot, " +
-                    "lock, apps, settings, vibrate, find."
+                    "lock, apps, settings, vibrate, find, contacts, inbox, location, wifi, report."
             )
         }
     } catch (t: Throwable) {
@@ -316,6 +321,97 @@ object PhoneTools {
             vib.vibrate(250)
         }
         return ToolResult.ok("Wibracja.")
+    }
+
+    private fun needPerm(perm: String, label: String): Boolean {
+        val ctx = ToolContext.app
+        return androidx.core.content.ContextCompat.checkSelfPermission(ctx, perm) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun askPerm(label: String): ToolResult {
+        val ctx = ToolContext.app
+        launch(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + ctx.packageName)))
+        return ToolResult.fail("Włącz uprawnienie ($label) w oknie aplikacji, potem powtórz.")
+    }
+
+    private fun contacts(query: String): ToolResult {
+        if (!needPerm(android.Manifest.permission.READ_CONTACTS, "kontakty")) {
+            return askPerm("kontakty")
+        }
+        val q = query.trim().lowercase()
+        val cr = ToolContext.app.contentResolver
+        val cur = cr.query(
+            android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+            arrayOf(
+                android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER,
+            ),
+            null, null, android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " ASC",
+        ) ?: return ToolResult.ok("Brak kontaktów.")
+        val out = ArrayList<String>()
+        cur.use {
+            while (it.moveToNext() && out.size < 12) {
+                val name = it.getString(0) ?: continue
+                val num = it.getString(1) ?: ""
+                if (q.isNotBlank() && !name.lowercase().contains(q) && !num.contains(q)) continue
+                out.add("$name: $num")
+            }
+        }
+        return if (out.isEmpty()) ToolResult.ok("Nie znalazłam kontaktu.")
+        else ToolResult.ok(out.joinToString("\n"))
+    }
+
+    private fun inbox(): ToolResult {
+        if (!needPerm(android.Manifest.permission.READ_SMS, "SMS")) return askPerm("SMS")
+        val cur = ToolContext.app.contentResolver.query(
+            Uri.parse("content://sms/inbox"),
+            arrayOf("address", "body", "date"),
+            null, null, "date DESC",
+        ) ?: return ToolResult.ok("Skrzynka pusta albo niedostępna.")
+        val out = ArrayList<String>()
+        cur.use {
+            while (it.moveToNext() && out.size < 8) {
+                val who = it.getString(0) ?: "?"
+                val body = (it.getString(1) ?: "").take(120)
+                out.add("$who: $body")
+            }
+        }
+        return if (out.isEmpty()) ToolResult.ok("Brak SMS.")
+        else ToolResult.ok(out.joinToString("\n"))
+    }
+
+    private fun location(): ToolResult {
+        if (!needPerm(android.Manifest.permission.ACCESS_FINE_LOCATION, "lokalizacja") &&
+            !needPerm(android.Manifest.permission.ACCESS_COARSE_LOCATION, "lokalizacja")
+        ) return askPerm("lokalizacja")
+        val lm = ToolContext.app.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
+        val loc = listOf(
+            android.location.LocationManager.GPS_PROVIDER,
+            android.location.LocationManager.NETWORK_PROVIDER,
+        ).mapNotNull { p ->
+            runCatching { lm.getLastKnownLocation(p) }.getOrNull()
+        }.maxByOrNull { it.time }
+            ?: return ToolResult.ok("Nie mam jeszcze ostatniej lokalizacji.")
+        return ToolResult.ok("Ostatnia pozycja: ${loc.latitude}, ${loc.longitude}.")
+    }
+
+    private fun wifi(): ToolResult {
+        val wm = ToolContext.app.applicationContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+        val on = wm.isWifiEnabled
+        launch(Intent(Settings.ACTION_WIFI_SETTINGS))
+        return ToolResult.ok(if (on) "Wi‑Fi włączone — otworzyłam ustawienia." else "Wi‑Fi wyłączone — otworzyłam ustawienia.")
+    }
+
+    private fun report(): ToolResult {
+        val snap = dev.nixi.util.ErrorReport.snapshot()
+        val i = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, snap)
+            putExtra(Intent.EXTRA_SUBJECT, "NIXI raport")
+        }
+        launch(Intent.createChooser(i, "Raport NIXI"))
+        return ToolResult.ok("Otworzyłam udostępnianie raportu.")
     }
 
     private fun clearNotifications(): ToolResult {

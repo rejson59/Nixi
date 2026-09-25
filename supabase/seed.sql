@@ -249,12 +249,64 @@ alter table public.nixi_access enable row level security;
 drop policy if exists nixi_all on public.nixi_access;
 create policy nixi_all on public.nixi_access for all using (true) with check (true);
 
+create table if not exists public.todos (
+  id bigint generated always as identity primary key,
+  title text not null,
+  done boolean default false,
+  category text default 'ogólne',
+  due timestamptz,
+  created_at timestamptz default now()
+);
+alter table public.todos add column if not exists id bigint generated always as identity primary key;
+alter table public.todos add column if not exists title text;
+alter table public.todos add column if not exists done boolean default false;
+alter table public.todos add column if not exists category text default 'ogólne';
+alter table public.todos add column if not exists due timestamptz;
+alter table public.todos add column if not exists created_at timestamptz default now();
+alter table public.todos enable row level security;
+drop policy if exists nixi_all on public.todos;
+create policy nixi_all on public.todos for all using (true) with check (true);
+
+create table if not exists public.shopping (
+  id bigint generated always as identity primary key,
+  item text not null,
+  qty text,
+  done boolean default false,
+  created_at timestamptz default now()
+);
+alter table public.shopping add column if not exists id bigint generated always as identity primary key;
+alter table public.shopping add column if not exists item text;
+alter table public.shopping add column if not exists qty text;
+alter table public.shopping add column if not exists done boolean default false;
+alter table public.shopping add column if not exists created_at timestamptz default now();
+alter table public.shopping enable row level security;
+drop policy if exists nixi_all on public.shopping;
+create policy nixi_all on public.shopping for all using (true) with check (true);
+
+create table if not exists public.people (
+  id bigint generated always as identity primary key,
+  name text not null,
+  relation text,
+  notes text,
+  last_talk timestamptz,
+  created_at timestamptz default now()
+);
+alter table public.people add column if not exists id bigint generated always as identity primary key;
+alter table public.people add column if not exists name text;
+alter table public.people add column if not exists relation text;
+alter table public.people add column if not exists notes text;
+alter table public.people add column if not exists last_talk timestamptz;
+alter table public.people add column if not exists created_at timestamptz default now();
+alter table public.people enable row level security;
+drop policy if exists nixi_all on public.people;
+create policy nixi_all on public.people for all using (true) with check (true);
+
 -- ── Startowe dane (nie nadpisują Twoich) ──
 insert into public.admin_table (key, value) values ('assistant_name', 'NIXI') on conflict (key) do nothing;
 insert into public.admin_table (key, value) values ('language', 'polski') on conflict (key) do nothing;
 insert into public.routines (name, trigger, time_of_day, steps) values ('Rano', 'Dzień dobry', 'rano', 'Powiedz którą jest godzinę, podaj krótki cytat podnoszący na duchu, powiedz o której zaczyna się pierwsza lekcja (z lesson_plan/kalendarza) i życz udanego dnia.');
 insert into public.silent_rules (name, app_package, contains, action, active) values ('Zastępstwo z dziennika', '', 'zastępstwo', '{"type": "calendar_substitution"}'::jsonb, true);
-insert into public.nixi_access (table_name, can_read, can_edit, can_delete) values ('admin_table', true, true, false), ('users', true, true, false), ('recent_conversations', true, true, true), ('memory_facts', true, true, true), ('reminders', true, true, true), ('alarms', true, true, true), ('calendar_events', true, true, true), ('lesson_plan', true, true, true), ('routines', true, true, true), ('silent_rules', true, true, true), ('settings', true, true, false), ('system_logs', true, false, true), ('errors', true, false, true) on conflict (table_name) do nothing;
+insert into public.nixi_access (table_name, can_read, can_edit, can_delete) values ('admin_table', true, true, false), ('users', true, true, false), ('recent_conversations', true, true, true), ('memory_facts', true, true, true), ('reminders', true, true, true), ('alarms', true, true, true), ('calendar_events', true, true, true), ('lesson_plan', true, true, true), ('routines', true, true, true), ('silent_rules', true, true, true), ('settings', true, true, false), ('system_logs', true, false, true), ('errors', true, false, true), ('todos', true, true, true), ('shopping', true, true, true), ('people', true, true, true) on conflict (table_name) do nothing;
 
 -- ── Furtka dla aplikacji: wykonywanie TYLKO poleceń NIXI ──────────────
 create or replace function public.nixi_exec_sql(sql text)
@@ -270,7 +322,7 @@ declare
   allowed text[] := array[
     'admin_table','users','memory_facts','recent_conversations','reminders',
     'alarms','calendar_events','lesson_plan','routines','silent_rules',
-    'settings','system_logs','errors','nixi_access'
+    'settings','system_logs','errors','nixi_access','todos','shopping','people'
   ];
   t text;
 begin

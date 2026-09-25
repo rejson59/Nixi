@@ -32,6 +32,9 @@ object NixiState {
     /** Czy trwa sesja głosowa. */
     val inSession = MutableStateFlow(false)
 
+    /** Reset bezczynności z narzędzia session/later. */
+    @Volatile var sessionKeepAliveAt: Long = 0L
+
     /** Czy aktywny jest tryb ręczny (ekran). */
     val manualMode = MutableStateFlow(false)
 

@@ -11,9 +11,12 @@ import dev.nixi.tools.SpotifyApi
 import dev.nixi.tools.SpotifyTools
 import dev.nixi.tools.SupabaseTools
 import dev.nixi.tools.SystemTools
+import dev.nixi.NixiState
+import dev.nixi.tools.LifeTools
 import dev.nixi.tools.LookupTools
 import dev.nixi.tools.PhoneTools
 import dev.nixi.tools.ReminderTools
+import dev.nixi.tools.ToolContext
 import dev.nixi.tools.ToolResult
 import org.json.JSONArray
 import org.json.JSONObject
@@ -50,9 +53,9 @@ object ToolRegistry {
         add("open_app", "Otwórz aplikację telefonu po nazwie.", mapOf("app" to s("nazwa aplikacji")), listOf("app"))
         add(
             "phone",
-            "Sterowanie telefonem. Akcje: status, volume, brightness, torch, timer, web, maps, clipboard, dial, sms, share, ringer, screenshot, lock, apps, settings, vibrate, find. Zwykłe zadania rób TYM narzędziem, nie trybem ręcznym.",
+            "Sterowanie telefonem. Akcje: status, volume, brightness, torch, timer, web, maps, clipboard, dial, sms, share, ringer, screenshot, lock, apps, settings, vibrate, find, contacts, inbox, location, wifi, report.",
             mapOf(
-                "action" to s("status|volume|brightness|torch|timer|web|maps|clipboard|dial|sms|share|ringer|screenshot|lock|apps|settings|vibrate|find"),
+                "action" to s("status|volume|brightness|torch|timer|web|maps|clipboard|dial|sms|share|ringer|screenshot|lock|apps|settings|vibrate|find|contacts|inbox|location|wifi|report"),
                 "value" to s("np. 50, mute, 5 min, numer, zapytanie, on/off"),
                 "extra" to s("opcjonalnie: strumień (music/ring), treść SMS, etykieta minutnika"),
             ),
@@ -160,6 +163,25 @@ object ToolRegistry {
         add("screen_back", "Naciśnij wstecz.", emptyMap(), emptyList())
         add("screen_home", "Naciśnij home.", emptyMap(), emptyList())
         add("screen_recent", "Pokaż ostatnie aplikacje.", emptyMap(), emptyList())
+        add("screen_click", "Kliknij element ekranu po widocznym tekście. Nie zgaduj pikseli.",
+            mapOf("text" to s("tekst na ekranie")), listOf("text"))
+        add(
+            "life",
+            "Listy życia: zadania, zakupy, ludzie, praca domowa. Akcje list/add/done.",
+            mapOf(
+                "action" to s("list|add|done"),
+                "kind" to s("todo|shopping|people|homework"),
+                "title" to s("tresc / imie / produkt"),
+                "extra" to s("kategoria, ilosc, relacja"),
+            ),
+            listOf("action", "kind"),
+        )
+        add(
+            "session",
+            "Sterowanie rozmowa: end = zakoncz, later = jeszcze poczekaj.",
+            mapOf("action" to s("end|later")),
+            listOf("action"),
+        )
 
         return arr
     }
@@ -253,6 +275,23 @@ object ToolRegistry {
             "screen_back" -> ScreenTools.back()
             "screen_home" -> ScreenTools.home()
             "screen_recent" -> ScreenTools.recents()
+            "screen_click" -> ScreenTools.clickText(args.optString("text", ""))
+            "life" -> LifeTools.run(
+                args.optString("action", "list"),
+                args.optString("kind", ""),
+                args.optString("title", ""),
+                args.optString("extra", ""),
+            )
+            "session" -> when (args.optString("action", "end").lowercase()) {
+                "later", "poczekaj", "czekaj" -> {
+                    NixiState.sessionKeepAliveAt = System.currentTimeMillis()
+                    ToolResult.ok("Czekam dalej. Powiedz koniec, gdy skonczysz.")
+                }
+                else -> {
+                    LiveSessionService.stop(ToolContext.app, "narzedzie session")
+                    ToolResult.ok("Koncze rozmowe.")
+                }
+            }
 
             else -> ToolResult.fail("Nieznane narzędzie: $name")
         }

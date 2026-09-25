@@ -183,6 +183,38 @@ object DbSchema {
                 Col("can_delete", "boolean default false"),
             )
         ),
+        Tbl(
+            "todos",
+            listOf(
+                Col("id", ID),
+                Col("title", "text not null"),
+                Col("done", "boolean default false"),
+                Col("category", "text default 'ogólne'"),
+                Col("due", "timestamptz"),
+                Col("created_at", NOW),
+            )
+        ),
+        Tbl(
+            "shopping",
+            listOf(
+                Col("id", ID),
+                Col("item", "text not null"),
+                Col("qty", "text"),
+                Col("done", "boolean default false"),
+                Col("created_at", NOW),
+            )
+        ),
+        Tbl(
+            "people",
+            listOf(
+                Col("id", ID),
+                Col("name", "text not null"),
+                Col("relation", "text"),
+                Col("notes", "text"),
+                Col("last_talk", "timestamptz"),
+                Col("created_at", NOW),
+            )
+        ),
     )
 
     /** Polecenia struktury — wspólne dla obu ścieżek (wklejanie i RPC). */
@@ -261,7 +293,7 @@ declare
   allowed text[] := array[
     'admin_table','users','memory_facts','recent_conversations','reminders',
     'alarms','calendar_events','lesson_plan','routines','silent_rules',
-    'settings','system_logs','errors','nixi_access'
+    'settings','system_logs','errors','nixi_access','todos','shopping','people'
   ];
   t text;
 begin

@@ -86,6 +86,14 @@ object ScreenTools {
         return ToolResult.ok("Kliknięto ($xPx, $yPx).")
     }
 
+    fun clickText(query: String): ToolResult {
+        val svc = NixiAccessibilityService.instance
+            ?: return ToolResult.fail("Brak sterowania (Accessibility wyłączony).")
+        val hit = svc.clickText(query)
+        return if (hit != null) ToolResult.ok("Kliknęłam «$hit».")
+        else ToolResult.fail("Nie znalazłam na ekranie tekstu «$query».")
+    }
+
     fun swipe(x1: Int, y1: Int, x2: Int, y2: Int, durationMs: Int): ToolResult {
         val svc = NixiAccessibilityService.instance
             ?: return ToolResult.fail("Brak sterowania (Accessibility wyłączony).")

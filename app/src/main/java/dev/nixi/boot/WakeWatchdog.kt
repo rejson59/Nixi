@@ -73,6 +73,12 @@ object WakeWatchdog {
         if (!LocalStore.onboarded || !LocalStore.wakeEnabled) return
         if (!WakeWordService.running && WakeWordService.hasMicPermission(app)) {
             LogBus.log("watchdog", "nasłuch nie działa — wznawiam", "warn")
+            dev.nixi.util.ErrorReport.note("watchdog", "nasłuch padł — wznawiam")
+            runCatching {
+                dev.nixi.notif.ActionNotifier.notify(
+                    app, "NIXI", "Nasłuch wrócił po przerwie.", short = true
+                )
+            }
             WakeWordService.start(app)
         } else if (WakeWordService.running) {
             // przy okazji: przy słabej baterii zejdź w tryb ECO (oszczędność)
@@ -82,6 +88,20 @@ object WakeWatchdog {
         NixiApp.scope.launch {
             runCatching { OfflineQueue.flush(app) }
                 .onFailure { LogBus.log("queue.flush", it.message ?: "?", "warn") }
+        }
+        // cicha rutyna rano: powiadomienie, bez nowej sesji
+        val h = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+        val day = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+            .format(java.util.Date())
+        if (h in 6..9 && LocalStore.lastRoutineDay != day) {
+            LocalStore.lastRoutineDay = day
+            runCatching {
+                dev.nixi.notif.ActionNotifier.notify(
+                    app, "NIXI · rano",
+                    "Powiedz „dzień dobry”, żebym odpaliła rutynę.",
+                    short = false
+                )
+            }
         }
     }
 
