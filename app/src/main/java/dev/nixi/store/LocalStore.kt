@@ -221,6 +221,11 @@ object LocalStore {
         get() = prefs.getBoolean("last_session_setup_ok", false)
         set(v) = prefs.edit().putBoolean("last_session_setup_ok", v).apply()
 
+    /** Ostatnie prawdziwe błędy (JSON) — karta „wklej agentowi”. */
+    var errorTape: String
+        get() = prefs.getString("error_tape", "") ?: ""
+        set(v) = prefs.edit().putString("error_tape", v).apply()
+
     fun clearAllData() {
         prefs.edit().clear().apply()
     }

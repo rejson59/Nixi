@@ -71,6 +71,7 @@ fun HomeScreen() {
     val inSession by NixiState.inSession.collectAsState()
     val sessionError by NixiState.lastSessionError.collectAsState()
     val checkItems by NixiState.selfCheck.collectAsState()
+    val tape by dev.nixi.util.ErrorReport.items.collectAsState()
     val checkRunning by NixiState.selfCheckRunning.collectAsState()
     val tick = rememberOnResumeTick()
     val scope = rememberCoroutineScope()
@@ -133,6 +134,43 @@ fun HomeScreen() {
                 modifier = Modifier.fillMaxWidth(),
                 onClick = { SessionLauncher.start(context, "button") },
             )
+        }
+
+        if (tape.isNotEmpty()) {
+            item {
+                SectionCard(
+                    title = "Do zgłoszenia",
+                    subtitle = "Skopiuj i wklej agentowi — to ostatnie prawdziwe błędy, nie ostrzeżenia.",
+                    accent = NixiWarn,
+                ) {
+                    Text(
+                        tape.first().let { "${it.where}: ${it.what}" },
+                        color = NixiText, fontSize = 13.sp, maxLines = 4,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        PillButton(
+                            text = "Kopiuj raport",
+                            modifier = Modifier.weight(1f),
+                            onClick = {
+                                val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                                    as android.content.ClipboardManager
+                                cm.setPrimaryClip(
+                                    android.content.ClipData.newPlainText(
+                                        "nixi-raport",
+                                        dev.nixi.util.ErrorReport.snapshot(),
+                                    )
+                                )
+                            },
+                        )
+                        PillButton(
+                            text = "Wyczyść",
+                            filled = false,
+                            onClick = { dev.nixi.util.ErrorReport.clear() },
+                        )
+                    }
+                }
+            }
         }
 
         item {

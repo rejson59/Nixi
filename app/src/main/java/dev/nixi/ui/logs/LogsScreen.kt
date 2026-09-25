@@ -79,7 +79,24 @@ fun LogsScreen() {
                 title = "Logi",
                 subtitle = "Co NIXI robiła i co się nie udało — z bazy i z pamięci.",
                 trailing = {
-                    PillButton(text = "Odśwież", filled = false, onClick = { tick++ })
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        PillButton(
+                            text = "Kopiuj raport",
+                            filled = false,
+                            onClick = {
+                                val ctx = dev.nixi.NixiApp.ctx()
+                                val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                                    as android.content.ClipboardManager
+                                cm.setPrimaryClip(
+                                    android.content.ClipData.newPlainText(
+                                        "nixi-raport",
+                                        dev.nixi.util.ErrorReport.snapshot(),
+                                    )
+                                )
+                            },
+                        )
+                        PillButton(text = "Odśwież", filled = false, onClick = { tick++ })
+                    }
                 },
             )
         }

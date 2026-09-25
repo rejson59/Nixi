@@ -24,6 +24,7 @@ class NixiApp : Application() {
         super.onCreate()
         app = this
         LocalStore.init(this)
+        dev.nixi.util.ErrorReport.load()
         // nowy zestaw zasad wykonania (bez pytań głosem) — nie trzymaj starego promptu
         if (!LocalStore.promptStatic.contains("ZASADY WYKONANIA")) {
             LocalStore.promptStaticAt = 0L
@@ -39,6 +40,7 @@ class NixiApp : Application() {
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             try {
                 LogBus.logException("uncaught", throwable)
+                dev.nixi.util.ErrorReport.note("crash", throwable.javaClass.simpleName + ": " + (throwable.message ?: ""))
             } catch (_: Throwable) {
             }
             scope.launch { SupabaseHub.reportError("uncaught_${thread.name}", throwable) }

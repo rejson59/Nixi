@@ -44,6 +44,9 @@ object LogBus {
     private fun add(entry: LogEntry) {
         deque.addFirst(entry)
         while (deque.size > MAX_ENTRIES) deque.removeLast()
+        if (entry.status == "error") {
+            runCatching { ErrorReport.note(entry.action, entry.detail) }
+        }
         // fire-and-forget: logi NIGDY nie mogą zablokować krytycznej ścieżki
         // (ani wywalić aplikacji, gdy LocalStore nie jest jeszcze gotowy)
         val configured = runCatching { SupabaseHub.isConfigured() }.getOrDefault(false)

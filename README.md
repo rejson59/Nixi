@@ -338,6 +338,8 @@ i tak działa niezależnie od wywołania długim przytrzymaniem).
 
 ## Historia zmian (skrót)
 
+- **1.3.9** — karta „Do zgłoszenia”: krótki, kopiowalny raport ostatnich
+  prawdziwych błędów (wersja, sesja, 5 wpisów) — bez szumu ostrzeżeń.
 - **1.3.8** — pigułka nie blokuje kliknięć w aplikację pod spodem (overlay
   na wysokość pigułki, nie pełny ekran).
 - **1.3.7** — NIXI sama szuka (pogoda, Wikipedia, liczenie), znajduje
