@@ -110,6 +110,10 @@ object NixiState {
     /** Podgląd ostatniego zdarzenia narzędzia (do chipa w oknie rozmowy). */
     val lastToolLine = MutableStateFlow("")
 
+    /** Ostatnie usłyszane / powiedziane zdanie (pigułka). */
+    val lastHeard = MutableStateFlow("")
+    val lastSaid = MutableStateFlow("")
+
     /** Kto wywołał ostatnią sesję („wake” lub „button”) + czas trafienia. */
     @Volatile var wakeTrigger = "wake"
     @Volatile var wakeHitAt = 0L

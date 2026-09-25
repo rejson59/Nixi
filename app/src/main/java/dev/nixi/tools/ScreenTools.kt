@@ -86,6 +86,14 @@ object ScreenTools {
         return ToolResult.ok("Kliknięto ($xPx, $yPx).")
     }
 
+    fun readLabels(): ToolResult {
+        val svc = NixiAccessibilityService.instance
+            ?: return ToolResult.fail("Brak sterowania (Accessibility wyłączony).")
+        val labels = svc.visibleTexts(50)
+        if (labels.isEmpty()) return ToolResult.ok("Nie widzę tekstu na ekranie.")
+        return ToolResult.ok("Na ekranie:\n" + labels.joinToString("\n") { "• $it" })
+    }
+
     fun clickText(query: String): ToolResult {
         val svc = NixiAccessibilityService.instance
             ?: return ToolResult.fail("Brak sterowania (Accessibility wyłączony).")

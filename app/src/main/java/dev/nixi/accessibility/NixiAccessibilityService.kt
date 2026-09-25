@@ -112,6 +112,37 @@ class NixiAccessibilityService : AccessibilityService() {
     }
 
     /** Kliknij pierwszy widoczny element z tym tekstem / opisem. */
+    /** Widoczny tekst z drzewa dostępności — bez zgody na nagranie ekranu. */
+    fun visibleTexts(max: Int = 40): List<String> {
+        val svc = instance ?: return emptyList()
+        val root = svc.rootInActiveWindow ?: return emptyList()
+        val out = ArrayList<String>()
+        try {
+            walkTexts(root, out, max)
+        } finally {
+            root.recycle()
+        }
+        return out.distinct()
+    }
+
+    private fun walkTexts(node: AccessibilityNodeInfo, out: MutableList<String>, max: Int) {
+        if (out.size >= max) return
+        val t = node.text?.toString()?.trim().orEmpty()
+        val d = node.contentDescription?.toString()?.trim().orEmpty()
+        val pick = when {
+            t.isNotBlank() && t.length in 2..90 -> t
+            d.isNotBlank() && d.length in 2..90 -> d
+            else -> ""
+        }
+        if (pick.isNotBlank()) out.add(pick)
+        for (i in 0 until node.childCount) {
+            val c = node.getChild(i) ?: continue
+            walkTexts(c, out, max)
+            c.recycle()
+            if (out.size >= max) return
+        }
+    }
+
     fun clickText(query: String): String? {
         val svc = instance ?: return null
         val root = svc.rootInActiveWindow ?: return null

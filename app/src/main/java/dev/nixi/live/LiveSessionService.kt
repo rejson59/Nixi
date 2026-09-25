@@ -237,6 +237,8 @@ class LiveSessionService : Service() {
         NixiState.sessionTrusted.value = LocalStore.trustDeletes
         NixiState.wantScreenCapture.value = false
         NixiState.lastToolLine.value = ""
+        NixiState.lastHeard.value = ""
+        NixiState.lastSaid.value = ""
         sessionStart = System.currentTimeMillis()
         lastUserActivity = sessionStart
         throttled = false
@@ -623,12 +625,16 @@ class LiveSessionService : Service() {
         override fun onInputTranscript(text: String) {
             if (text.isNotBlank()) {
                 transcripts.add("user" to text)
+                NixiState.lastHeard.value = text.take(120)
                 lastUserActivity = System.currentTimeMillis()
             }
         }
 
         override fun onOutputTranscript(text: String) {
-            if (text.isNotBlank()) transcripts.add("nixi" to text)
+            if (text.isNotBlank()) {
+                transcripts.add("nixi" to text)
+                NixiState.lastSaid.value = text.take(120)
+            }
         }
 
         override fun onToolCall(callId: String, calls: List<JSONObject>) {

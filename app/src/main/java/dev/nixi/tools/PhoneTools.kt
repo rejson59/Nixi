@@ -200,9 +200,11 @@ object PhoneTools {
     }
 
     private fun dial(value: String, callNow: Boolean): ToolResult {
-        val n = value.trim()
-        if (n.isBlank()) return ToolResult.fail("Podaj numer.")
-        val tel = n.filter { it.isDigit() || it == '+' }
+        val hit = resolveContact(value) ?: return ToolResult.fail(
+            "Nie wiem, do kogo dzwonić („$value”). Podaj numer albo imię z kontaktów."
+        )
+        val n = hit.first
+        val tel = hit.second
         val uri = Uri.parse("tel:$tel")
         if (callNow && PermAsk.call()) {
             launch(Intent(Intent.ACTION_CALL, uri))
@@ -227,13 +229,58 @@ object PhoneTools {
     }
 
     private fun sms(to: String, body: String): ToolResult {
-        if (to.isBlank()) return ToolResult.fail("Podaj numer odbiorcy.")
-        val uri = Uri.parse("smsto:" + to.filter { it.isDigit() || it == '+' })
+        val hit = resolveContact(to) ?: return ToolResult.fail(
+            "Nie wiem, do kogo pisać („$to”). Podaj numer albo imię z kontaktów."
+        )
+        val tel = hit.second
+        if (body.isNotBlank() && PermAsk.sendSms()) {
+            return try {
+                val sm = android.telephony.SmsManager.getDefault()
+                sm.sendTextMessage(tel, null, body.take(480), null, null)
+                ToolResult.ok("Wysłałam SMS do ${hit.first}: ${body.take(80)}")
+            } catch (t: Throwable) {
+                ToolResult.fail("Nie wysłałam SMS: ${t.message}")
+            }
+        }
+        val uri = Uri.parse("smsto:$tel")
         val i = Intent(Intent.ACTION_SENDTO, uri)
         if (body.isNotBlank()) i.putExtra("sms_body", body)
         launch(i)
         clickSoon(listOf("Wyślij", "Send", "SMS"))
-        return ToolResult.ok("Otworzyłam SMS do $to — klikam Wyślij, jeśli widać przycisk.")
+        return ToolResult.ok("Otworzyłam SMS do ${hit.first} — klikam Wyślij, jeśli widać przycisk.")
+    }
+
+    /** Numer albo imię z książki. */
+    private fun resolveContact(raw: String): Pair<String, String>? {
+        val q = raw.trim()
+        if (q.isBlank()) return null
+        val digits = q.filter { it.isDigit() || it == '+' }
+        if (digits.length >= 6) return q to digits
+        if (!PermAsk.contacts()) return null
+        val cr = ToolContext.app.contentResolver
+        val cur = cr.query(
+            android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+            arrayOf(
+                android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER,
+            ),
+            null, null, null,
+        ) ?: return null
+        var best: Pair<String, String>? = null
+        val needle = q.lowercase()
+        cur.use {
+            while (it.moveToNext()) {
+                val name = it.getString(0) ?: continue
+                val num = (it.getString(1) ?: "").filter { ch -> ch.isDigit() || ch == '+' }
+                if (num.length < 6) continue
+                val ln = name.lowercase()
+                if (ln == needle || ln.startsWith(needle) || ln.contains(needle)) {
+                    best = name to num
+                    if (ln == needle || ln.startsWith(needle)) break
+                }
+            }
+        }
+        return best
     }
 
     private fun share(value: String): ToolResult {
@@ -378,7 +425,7 @@ object PhoneTools {
     }
 
     private fun inbox(): ToolResult {
-        if (!PermAsk.sms()) return ToolResult.fail("Potrzebuję SMS — zatwierdź dialog i powtórz.")
+        if (!PermAsk.receiveSms()) return ToolResult.fail("Potrzebuję SMS — zatwierdź dialog i powtórz.")
         val cur = ToolContext.app.contentResolver.query(
             Uri.parse("content://sms/inbox"),
             arrayOf("address", "body", "date"),

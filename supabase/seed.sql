@@ -306,6 +306,9 @@ insert into public.admin_table (key, value) values ('assistant_name', 'NIXI') on
 insert into public.admin_table (key, value) values ('language', 'polski') on conflict (key) do nothing;
 insert into public.routines (name, trigger, time_of_day, steps) values ('Rano', 'Dzień dobry', 'rano', 'Powiedz którą jest godzinę, podaj krótki cytat podnoszący na duchu, powiedz o której zaczyna się pierwsza lekcja (z lesson_plan/kalendarza) i życz udanego dnia.');
 insert into public.silent_rules (name, app_package, contains, action, active) values ('Zastępstwo z dziennika', '', 'zastępstwo', '{"type": "calendar_substitution"}'::jsonb, true);
+insert into public.silent_rules (name, app_package, contains, action, active) values ('Zastępstwo eduVulcan', 'pl.edu.vulcan.hebe', 'zastępstwo', '{"type": "calendar_substitution"}'::jsonb, true);
+insert into public.silent_rules (name, app_package, contains, action, active) values ('Sprawdzian z dziennika', '', 'sprawdzian', '{"type": "calendar_test"}'::jsonb, true);
+insert into public.silent_rules (name, app_package, contains, action, active) values ('Wolne z dziennika', '', 'wolne', '{"type": "calendar_day_off"}'::jsonb, true);
 insert into public.nixi_access (table_name, can_read, can_edit, can_delete) values ('admin_table', true, true, false), ('users', true, true, false), ('recent_conversations', true, true, true), ('memory_facts', true, true, true), ('reminders', true, true, true), ('alarms', true, true, true), ('calendar_events', true, true, true), ('lesson_plan', true, true, true), ('routines', true, true, true), ('silent_rules', true, true, true), ('settings', true, true, false), ('system_logs', true, false, true), ('errors', true, false, true), ('todos', true, true, true), ('shopping', true, true, true), ('people', true, true, true) on conflict (table_name) do nothing;
 
 -- ── Furtka dla aplikacji: wykonywanie TYLKO poleceń NIXI ──────────────

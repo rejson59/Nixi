@@ -42,8 +42,8 @@ object ReminderTools {
         if (!SupabaseHub.available) return ToolResult.fail("Supabase niedostępny.")
         if (title.isBlank()) return ToolResult.fail("Podaj treść przypomnienia.")
 
-        val iso = parseWhen(whenIso) ?: return ToolResult.fail(
-            "Nie rozumiem czasu „$whenIso” (np. 17:30, jutro 8:00, 2026-09-25T17:30)."
+        val iso = TimeUtils.parseFlexible(whenIso) ?: parseWhen(whenIso) ?: return ToolResult.fail(
+            "Nie rozumiem czasu „$whenIso” (np. 17:30, jutro 8:00, za 20 minut, pojutrze 7:00)."
         )
         val firesAt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).apply {
             timeZone = java.util.TimeZone.getDefault()

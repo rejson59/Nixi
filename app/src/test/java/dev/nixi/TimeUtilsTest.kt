@@ -61,6 +61,15 @@ class TimeUtilsTest {
     }
 
     @Test
+    fun `za dwadziescia minut`() {
+        val v = TimeUtils.parseFlexible("za 20 minut")
+        assertNotNull(v)
+        val parsed = TimeUtils.parseIso(v!!)!!
+        val delta = parsed.time - System.currentTimeMillis()
+        assertTrue("delta=$delta", delta in 15 * 60_000L..25 * 60_000L)
+    }
+
+    @Test
     fun `smieci zwracaja null a nie wyjatek`() {
         assertNull(TimeUtils.parseFlexible(""))
         assertNull(TimeUtils.parseFlexible("nie wiem kiedy"))

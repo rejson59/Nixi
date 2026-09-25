@@ -87,6 +87,19 @@ object TimeUtils {
             }
         }
 
+        // 2b) „za 20 minut", „za 2 godziny"
+        val rel = Regex("""za\s+(\d+)\s*(minut\w*|min|godzin\w*|godz|h)\b""").find(t)
+        if (rel != null) {
+            val n = rel.groupValues[1].toInt()
+            val unit = rel.groupValues[2]
+            val cal = Calendar.getInstance()
+            if (unit.startsWith("min")) cal.add(Calendar.MINUTE, n)
+            else cal.add(Calendar.HOUR_OF_DAY, n)
+            cal.set(Calendar.SECOND, 0)
+            cal.set(Calendar.MILLISECOND, 0)
+            return fmt(iso).format(cal.time)
+        }
+
         // 3) „jutro 8:00", „pojutrze 9:30", „dziś 17:45"
         val dayOffset = when {
             t.contains("pojutrze") -> 2

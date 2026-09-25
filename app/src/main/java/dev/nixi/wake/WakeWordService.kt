@@ -114,14 +114,14 @@ class WakeWordService : Service() {
         @Volatile private var autoEco = false
 
         /**
-         * Poniżej 20% baterii (i bez ładowania) nasłuch przechodzi w tryb ECO:
+         * Poniżej 15% baterii (i bez ładowania) nasłuch przechodzi w tryb ECO:
          * mniej ciepła i zużycia, a „Hej Nixi" nadal działa.
          */
         private fun lowBattery(): Boolean = try {
             val ctx = NixiApp.ctx()
             val bm = ctx.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
             val level = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-            level in 1..20 && !bm.isCharging
+            level in 1..15 && !bm.isCharging
         } catch (_: Throwable) {
             false
         }
@@ -132,8 +132,16 @@ class WakeWordService : Service() {
             val auto = eco && !LocalStore.ecoMode
             if (auto != autoEco) {
                 autoEco = auto
-                if (auto) LogBus.log("wake.eco", "mało baterii — nasłuch w trybie ECO")
-                else LogBus.log("wake.eco", "wracam do trybu STANDARD")
+                if (auto) {
+                    LogBus.log("wake.eco", "mało baterii — nasłuch w trybie ECO")
+                    runCatching {
+                        ActionNotifier.notify(
+                            NixiApp.ctx(), "NIXI",
+                            "Mało baterii — nasłuch w ECO, żebym mniej żarła.",
+                            short = true,
+                        )
+                    }
+                } else LogBus.log("wake.eco", "wracam do trybu STANDARD")
             }
             engine.configure(mode, LocalStore.wakeSensitivity)
             // Szablon ładujemy, gdy się zmienił (albo po starcie procesu).

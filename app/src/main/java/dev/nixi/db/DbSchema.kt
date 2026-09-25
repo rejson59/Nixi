@@ -257,6 +257,15 @@ object DbSchema {
         "insert into public.silent_rules (name, app_package, contains, action, active) values " +
             "('Zastępstwo z dziennika', '', 'zastępstwo', " +
             "'{\"type\": \"calendar_substitution\"}'::jsonb, true)",
+        "insert into public.silent_rules (name, app_package, contains, action, active) values " +
+            "('Zastępstwo eduVulcan', 'pl.edu.vulcan.hebe', 'zastępstwo', " +
+            "'{\"type\": \"calendar_substitution\"}'::jsonb, true)",
+        "insert into public.silent_rules (name, app_package, contains, action, active) values " +
+            "('Sprawdzian z dziennika', '', 'sprawdzian', " +
+            "'{\"type\": \"calendar_test\"}'::jsonb, true)",
+        "insert into public.silent_rules (name, app_package, contains, action, active) values " +
+            "('Wolne z dziennika', '', 'wolne', " +
+            "'{\"type\": \"calendar_day_off\"}'::jsonb, true)",
         "insert into public.nixi_access (table_name, can_read, can_edit, can_delete) values " +
             Tables.CORE.filter { it != Tables.ACCESS }.joinToString(", ") {
                 val del = it in listOf(Tables.LOGS, Tables.ERRORS)

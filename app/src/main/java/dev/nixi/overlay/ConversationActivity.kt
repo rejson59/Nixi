@@ -197,6 +197,8 @@ fun ConversationUi(
     val manual by NixiState.manualMode.collectAsState()
     val pending by NixiState.pendingActions.collectAsState()
     val lastTool by NixiState.lastToolLine.collectAsState()
+    val lastHeard by NixiState.lastHeard.collectAsState()
+    val lastSaid by NixiState.lastSaid.collectAsState()
     val sessionError by NixiState.lastSessionError.collectAsState()
     val pendingSql by NixiState.pendingSql.collectAsState()
     val tpm by NixiState.tpm.collectAsState()
@@ -281,6 +283,15 @@ fun ConversationUi(
                                 )
                                 Spacer(Modifier.width(10.dp))
                                 StatusPill(state = state)
+                            }
+                            if (lastHeard.isNotBlank() || lastSaid.isNotBlank()) {
+                                Spacer(Modifier.height(4.dp))
+                                if (lastHeard.isNotBlank()) {
+                                    Text("Ty: $lastHeard", color = NixiTextDim, fontSize = 11.sp, maxLines = 1)
+                                }
+                                if (lastSaid.isNotBlank()) {
+                                    Text("NIXI: $lastSaid", color = NixiTextDim, fontSize = 11.sp, maxLines = 1)
+                                }
                             }
                             if (lastTool.isNotBlank()) {
                                 Spacer(Modifier.height(4.dp))

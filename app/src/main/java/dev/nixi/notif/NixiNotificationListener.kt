@@ -69,84 +69,9 @@ class NixiNotificationListener : NotificationListenerService() {
             if (contains.isNotBlank() && !body.lowercase().contains(contains)) continue
 
             NixiApp.scope.launch {
-                runCatching { applyRule(rule, sbn.packageName, title, text) }
+                runCatching { SilentRules.apply(rule, sbn.packageName, title, text) }
                     .onFailure { LogBus.log("rule.err", it.message ?: "?", "error") }
             }
-        }
-    }
-
-    /** Zastosuj regułę: na razie wspierany typ akcji = calendar_substitution. */
-    private suspend fun applyRule(rule: JSONObject, pkg: String, title: String, text: String) {
-        val action = rule.optJSONObject("action") ?: return
-        val type = action.optString("type")
-        val app = dev.nixi.NixiApp.ctx()
-
-        when (type) {
-            "calendar_substitution" -> {
-                val body = "$title $text"
-                val extracted = Regex(
-                    """zastępstw[oa]\s*[:\-–]?\s*(.+)""",
-                    RegexOption.IGNORE_CASE,
-                ).find(body)?.groupValues?.get(1)?.trim()?.take(80)
-                val subject = action.optString("subject").ifBlank {
-                    extracted ?: text.trim().ifBlank { title.trim() }
-                }
-                if (subject.isBlank()) return
-                val (isoStart, isoEnd) = dev.nixi.util.TimeUtils.todayWindow()
-                val events = SupabaseHub.calendarEventsBetween(isoStart, isoEnd)
-                var changed = 0
-                for (e in events) {
-                    val eTitle = e.optString("title").lowercase()
-                    val eKind = e.optString("kind", "normal")
-                    if (eKind == "zastepstwo") continue
-                    // dopasuj po przedmiocie (lub pierwszy event, jeśli reguła celuje "dzień")
-                    val subj = subject.lowercase()
-                    val match = subj.isNotEmpty() &&
-                        (eTitle.contains(subj) || subj.contains(eTitle) ||
-                            (subj.length > 3 && eTitle.contains(subj.take(6))))
-                    if (!match) continue
-                    val row = JSONObject().apply {
-                        put("kind", "zastepstwo")
-                        put("title", "Zastępstwo: $subject")
-                        put("notes", (e.optString("notes", "") + " [auto NIXI: $text]").trim())
-                    }
-                    val id = e.opt("id")?.toString()
-                    if (id.isNullOrBlank()) continue
-                    val r = SupabaseHub.updateRow(
-                        dev.nixi.db.Tables.CALENDAR,
-                        mapOf("id" to "eq.$id"), row
-                    )
-                    if (r.ok) changed++
-                }
-                if (changed > 0) {
-                    ActionNotifier.notify(
-                        app, "NIXI: cicha akcja",
-                        "Zastępstwo („$subject”) — zaktualizowałam kalendarz ($changed).",
-                        short = true
-                    )
-                    LogBus.log("rule.calendar_substitution", "$pkg → $subject ($changed)")
-                }
-            }
-
-            "reminder" -> {
-                val whenTxt = action.optString("when", "za 30 min")
-                val titleR = action.optString("title").ifBlank { title.ifBlank { text.take(80) } }
-                if (titleR.isBlank()) return
-                val r = dev.nixi.tools.ReminderTools.add(titleR, whenTxt)
-                if (r.ok) {
-                    ActionNotifier.notify(app, "NIXI: cicha akcja", r.text, short = true)
-                    LogBus.log("rule.reminder", titleR)
-                }
-            }
-
-            "memory" -> {
-                val fact = action.optString("fact").ifBlank { "$title $text".trim() }
-                if (fact.isBlank()) return
-                val r = dev.nixi.tools.MemoryTools.store(fact, action.optString("category", "powiadomienia"))
-                if (r.ok) LogBus.log("rule.memory", fact.take(80))
-            }
-
-            else -> LogBus.log("rule.unknown", "typ: $type", "warn")
         }
     }
 

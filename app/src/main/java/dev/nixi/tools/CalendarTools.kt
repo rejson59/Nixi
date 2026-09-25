@@ -10,7 +10,7 @@ import org.json.JSONObject
  * Wbudowany kalendarz NIXI — tabela calendar_events w Supabase
  * (żaden kalendarz Google/systemowy).
  * Kolumny: id, title, start, end, location, notes, kind
- *   kind: normal | zastepstwo | wolne
+ *   kind: normal | zastepstwo | wolne | sprawdzian
  */
 object CalendarTools {
 
@@ -48,14 +48,17 @@ object CalendarTools {
                 append(" ").append(e.optString("title"))
                 val loc = e.optString("location")
                 if (loc.isNotBlank()) append(" @").append(loc)
-                if (e.optString("kind") == "zastepstwo") append(" [ZASTĘPSTWO]")
-                if (e.optString("kind") == "wolne") append(" [WOLNE]")
+                when (e.optString("kind")) {
+                    "zastepstwo" -> append(" [ZASTĘPSTWO]")
+                    "wolne" -> append(" [WOLNE]")
+                    "sprawdzian" -> append(" [SPRAWDZIAN]")
+                }
             }
         }
         return ToolResult.ok("Wydarzenia:\n$list")
     }
 
-    suspend fun add(title: String, start: String, end: String, location: String, notes: String): ToolResult {
+    suspend fun add(title: String, start: String, end: String, location: String, notes: String, kind: String = "normal"): ToolResult {
         if (!SupabaseHub.available) return ToolResult.fail("Supabase niedostępny.")
         val s = TimeUtils.parseFlexible(start) ?: return ToolResult.fail(
             "Nie rozumiem godziny/początku „$start” (np. 15:30 albo 2026-09-25T10:00)."
@@ -67,7 +70,7 @@ object CalendarTools {
             put("end", e)
             put("location", location)
             put("notes", notes)
-            put("kind", "normal")
+            put("kind", normKind(kind))
         }
         val r = runCatching { SupabaseHub.insertRow(Tables.CALENDAR, row) }.getOrNull()
             ?: return ToolResult.fail("Błąd zapisu.")
@@ -91,7 +94,7 @@ object CalendarTools {
         end.takeIf { it.isNotBlank() }?.let { row.put("end", TimeUtils.parseFlexible(it)) }
         location.takeIf { it.isNotBlank() }?.let { row.put("location", it) }
         notes.takeIf { it.isNotBlank() }?.let { row.put("notes", it) }
-        kind.takeIf { it.isNotBlank() }?.let { row.put("kind", it) }
+        kind.takeIf { it.isNotBlank() }?.let { row.put("kind", normKind(it)) }
         if (row.length() == 0) return ToolResult.fail("Brak pól do edycji.")
         val r = runCatching {
             SupabaseHub.updateRow(Tables.CALENDAR, mapOf("id" to "eq.$id"), row)
@@ -153,5 +156,39 @@ object CalendarTools {
             "Zastępstwo: $subject (zmieniono: $changed)", short = true
         )
         return ToolResult.ok("Oznaczyłam zastępstwo: $subject (poprzednio: $lastTitle).")
+    }
+
+    suspend fun mark(kind: String, subject: String): ToolResult {
+        val k = normKind(kind)
+        if (k == "normal") return ToolResult.fail("Podaj kind: zastepstwo, wolne albo sprawdzian.")
+        if (subject.isBlank()) return ToolResult.fail("Podaj przedmiot albo tytuł.")
+        if (k == "zastepstwo") return substitute(subject)
+        if (!SupabaseHub.available) return ToolResult.fail("Supabase niedostępny.")
+        val (t0, t1) = TimeUtils.todayWindow()
+        val events = SupabaseHub.calendarEventsBetween(t0, t1)
+        var changed = 0
+        val prefix = if (k == "wolne") "Wolne" else "Sprawdzian"
+        for (e in events) {
+            val eTitle = e.optString("title").lowercase()
+            if (e.optString("kind") == k) continue
+            val subj = subject.lowercase()
+            val matches = subj.isNotEmpty() && eTitle.isNotEmpty() && (
+                eTitle.contains(subj) || (subj.length >= 4 && eTitle.contains(subj.take(6)))
+                )
+            if (!matches) continue
+            val id = rowId(e) ?: continue
+            val row = JSONObject().put("kind", k).put("title", "$prefix: $subject")
+            if (SupabaseHub.updateRow(Tables.CALENDAR, mapOf("id" to "eq.$id"), row).ok) changed++
+        }
+        if (changed == 0) return ToolResult.ok("Nie znalazłam pasującego wydarzenia na dziś.")
+        ActionNotifier.notify(ToolContext.app, "NIXI: kalendarz", "$prefix: $subject ($changed)", short = true)
+        return ToolResult.ok("Oznaczyłam $prefix: $subject ($changed).")
+    }
+
+    private fun normKind(raw: String): String = when (raw.trim().lowercase()) {
+        "wolne", "off", "day_off" -> "wolne"
+        "sprawdzian", "test", "exam", "kartkowka", "kartkówka" -> "sprawdzian"
+        "zastepstwo", "zastępstwo", "sub" -> "zastepstwo"
+        else -> "normal"
     }
 }

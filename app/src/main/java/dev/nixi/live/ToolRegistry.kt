@@ -100,19 +100,23 @@ object ToolRegistry {
         add("calendar_add", "Dodaj wydarzenie do kalendarza NIXI.",
             mapOf("title" to s("tytuł"), "start" to s("np. 15:30 albo 2026-09-25T15:30"),
                 "end" to s("koniec (opcjonalnie)"), "location" to s("miejsce (opcjonalnie)"),
-                "notes" to s("notatki (opcjonalnie)")), listOf("title", "start"))
+                "notes" to s("notatki (opcjonalnie)"), "kind" to s("normal|zastepstwo|wolne|sprawdzian")),
+            listOf("title", "start"))
         add("calendar_update", "Edytuj wydarzenie kalendarza po id.",
             mapOf("id" to s("id wydarzenia"), "title" to s(""), "start" to s(""), "end" to s(""),
-                "location" to s(""), "notes" to s(""), "kind" to s("normal|zastepstwo|wolne")), listOf("id"))
+                "location" to s(""), "notes" to s(""), "kind" to s("normal|zastepstwo|wolne|sprawdzian")), listOf("id"))
         add("calendar_remove", "USUŃ wydarzenie kalendarza (wymaga potwierdzenia).",
             mapOf("id" to s("id wydarzenia")), listOf("id"))
         add("calendar_substitute", "Oznacz wydarzenia pasujące do przedmiotu jako ZASTĘPSTWO.",
             mapOf("subject" to s("np. Matematyka")), listOf("subject"))
+        add("calendar_mark", "Oznacz wydarzenie na dziś: wolne / sprawdzian / zastępstwo.",
+            mapOf("kind" to s("wolne|sprawdzian|zastepstwo"), "subject" to s("przedmiot albo tytuł")),
+            listOf("kind", "subject"))
 
         // budziki
         add("alarm_list", "Lista ustawionych budzików.", emptyMap(), emptyList())
         add("alarm_add", "Ustaw systemowy budzik.",
-            mapOf("time" to s("HH:mm"), "label" to s("etykieta (opcjonalnie)"),
+            mapOf("time" to s("HH:mm, jutro 7:00, za 20 minut, pojutrze 7:00"), "label" to s("etykieta (opcjonalnie)"),
                 "days" to s("daily|weekdays|weekend (opcjonalnie)"), "sound" to s("dźwięk (opcjonalnie)")),
             listOf("time"))
         add("alarm_edit", "Edytuj budzik po id (czas/etykieta/dźwięk/aktywność).",
@@ -165,6 +169,7 @@ object ToolRegistry {
         add("screen_recent", "Pokaż ostatnie aplikacje.", emptyMap(), emptyList())
         add("screen_click", "Kliknij element ekranu po widocznym tekście. Nie zgaduj pikseli.",
             mapOf("text" to s("tekst na ekranie")), listOf("text"))
+        add("screen_read", "Odczytaj widoczny tekst z ekranu (bez zgody na nagranie).", emptyMap(), emptyList())
         add(
             "life",
             "Listy życia: zadania, zakupy, ludzie, notatki, plan lekcji, kopia. Akcje list/add/done/backup.",
@@ -221,7 +226,8 @@ object ToolRegistry {
             "calendar_list" -> CalendarTools.list(args.optString("range", "dziś"))
             "calendar_add" -> CalendarTools.add(
                 args.optString("title", ""), args.optString("start", ""),
-                args.optString("end", ""), args.optString("location", ""), args.optString("notes", "")
+                args.optString("end", ""), args.optString("location", ""), args.optString("notes", ""),
+                args.optString("kind", "normal"),
             )
             "calendar_update" -> CalendarTools.update(
                 args.optString("id", ""), args.optString("title", ""), args.optString("start", ""),
@@ -230,6 +236,7 @@ object ToolRegistry {
             )
             "calendar_remove" -> CalendarTools.remove(args.optString("id", ""))
             "calendar_substitute" -> CalendarTools.substitute(args.optString("subject", ""))
+            "calendar_mark" -> CalendarTools.mark(args.optString("kind", ""), args.optString("subject", ""))
 
             "alarm_list" -> AlarmTools.list()
             "alarm_add" -> AlarmTools.add(
@@ -276,6 +283,7 @@ object ToolRegistry {
             "screen_home" -> ScreenTools.home()
             "screen_recent" -> ScreenTools.recents()
             "screen_click" -> ScreenTools.clickText(args.optString("text", ""))
+            "screen_read" -> ScreenTools.readLabels()
             "life" -> LifeTools.run(
                 args.optString("action", "list"),
                 args.optString("kind", ""),

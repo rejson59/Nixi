@@ -10,6 +10,7 @@ import dev.nixi.db.SupabaseHub
 import dev.nixi.db.Tables
 import dev.nixi.notif.ActionNotifier
 import dev.nixi.notif.ReminderReceiver
+import dev.nixi.util.TimeUtils
 import org.json.JSONObject
 
 /**
@@ -41,9 +42,9 @@ object AlarmTools {
     /** time: "HH:mm"; label; days: "weekdays"|"weekend"|"daily"; sound: nazwa/id dźwięku. */
     suspend fun add(time: String, label: String, days: String, sound: String): ToolResult {
         val ctx = ToolContext.app
-        val h = time.substringBefore(':').toIntOrNull() ?: return ToolResult.fail("Zły czas „$time”.")
-        val m = time.substringAfter(':').toIntOrNull() ?: return ToolResult.fail("Zły czas „$time”.")
-        if (h !in 0..23 || m !in 0..59) return ToolResult.fail("Zły czas „$time”.")
+        val (h, m) = parseClock(time) ?: return ToolResult.fail(
+            "Zły czas „$time” (np. 07:00, jutro 7:00, za 20 minut, pojutrze 7:00)."
+        )
 
         val intent = Intent(AlarmClock.ACTION_SET_ALARM).apply {
             putExtra(AlarmClock.EXTRA_HOUR, h)
@@ -156,5 +157,17 @@ object AlarmTools {
             "Wyłączyłam alarm #$id po swojej stronie i otworzyłam listę alarmów telefonu, " +
                 "żebyś zdjął go w zegarze (Android nie daje zewnętrznego API usuwania)."
         )
+    }
+
+    private fun parseClock(time: String): Pair<Int, Int>? {
+        val t = time.trim()
+        Regex("""^(\d{1,2})[:.](\d{2})$""").find(t)?.let {
+            val h = it.groupValues[1].toInt()
+            val m = it.groupValues[2].toInt()
+            if (h in 0..23 && m in 0..59) return h to m
+        }
+        val iso = TimeUtils.parseFlexible(t) ?: return null
+        val hm = Regex("""T(\d{2}):(\d{2})""").find(iso) ?: return null
+        return hm.groupValues[1].toInt() to hm.groupValues[2].toInt()
     }
 }

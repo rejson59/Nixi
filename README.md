@@ -338,6 +338,9 @@ i tak działa niezależnie od wywołania długim przytrzymaniem).
 
 ## Historia zmian (skrót)
 
+- **1.4.2** — dzwonienie po imieniu, SMS, odczyt ekranu bez nagrania, budzik
+  „za 20 min” / pojutrze, ciche reguły SMS + eduVulcan, wolne/sprawdzian,
+  ECO przy 15% baterii, transkrypt na pigułce.
 - **1.4.1** — połączenie z kliknięciem Zadzwoń, dialogi uprawnień, kolejka
   offline dla list, kopia w Pobranych, TPM mówi o pauzie, plan lekcji,
   tłumaczenie, większy „Zakończ” na pigułce.

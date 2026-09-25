@@ -35,4 +35,6 @@ object PermAsk {
         Manifest.permission.ACCESS_COARSE_LOCATION,
     )
     fun call() = ensure(Manifest.permission.CALL_PHONE)
+    fun sendSms() = ensure(Manifest.permission.SEND_SMS)
+    fun receiveSms() = ensure(Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS)
 }
