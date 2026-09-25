@@ -68,11 +68,13 @@ object LifeTools {
             )
         }
         "add", "dodaj" -> {
-            if (title.isBlank()) return ToolResult.fail("Podaj produkt.")
-            val row = JSONObject().put("item", title.trim()).put("qty", extra).put("done", false)
-            val r = SupabaseHub.insertRow(Tables.SHOPPING, row)
-            if (!r.ok) ToolResult.fail(r.error ?: "Nie zapisałam.")
-            else ToolResult.ok("Na listę zakupów: $title")
+            if (title.isBlank()) ToolResult.fail("Podaj produkt.")
+            else {
+                val row = JSONObject().put("item", title.trim()).put("qty", extra).put("done", false)
+                val r = SupabaseHub.insertRow(Tables.SHOPPING, row)
+                if (!r.ok) ToolResult.fail(r.error ?: "Nie zapisałam.")
+                else ToolResult.ok("Na listę zakupów: $title")
+            }
         }
         "done", "zrobione" -> markDone(Tables.SHOPPING, title, "item")
         else -> ToolResult.fail("Akcja: list, add, done.")
@@ -91,11 +93,13 @@ object LifeTools {
             )
         }
         "add", "dodaj" -> {
-            if (title.isBlank()) return ToolResult.fail("Podaj imię.")
-            val row = JSONObject().put("name", title.trim()).put("relation", extra).put("notes", "")
-            val r = SupabaseHub.insertRow(Tables.PEOPLE, row)
-            if (!r.ok) ToolResult.fail(r.error ?: "Nie zapisałam.")
-            else ToolResult.ok("Zapamiętałam osobę: $title")
+            if (title.isBlank()) ToolResult.fail("Podaj imię.")
+            else {
+                val row = JSONObject().put("name", title.trim()).put("relation", extra).put("notes", "")
+                val r = SupabaseHub.insertRow(Tables.PEOPLE, row)
+                if (!r.ok) ToolResult.fail(r.error ?: "Nie zapisałam.")
+                else ToolResult.ok("Zapamiętałam osobę: $title")
+            }
         }
         else -> ToolResult.fail("Akcja: list, add.")
     }
