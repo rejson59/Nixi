@@ -211,6 +211,7 @@ fun SettingsScreen() {
                             LocalStore.memoryModel = memoryModel.ifBlank { "gemini-3.8-flash" }
                             LocalStore.tpmMode = tpmMode
                             tpmLimit.toIntOrNull()?.let { LocalStore.tpmCustomLimit = it }
+                            dev.nixi.store.ConfigSync.persistSoon(dev.nixi.NixiApp.ctx())
                         },
                     )
                 }
@@ -410,6 +411,7 @@ fun SettingsScreen() {
                             LocalStore.supabaseUrl = sbUrl
                             LocalStore.supabaseKey = sbKey
                             LocalStore.supabasePat = sbPat
+                            dev.nixi.store.ConfigSync.persistSoon(dev.nixi.NixiApp.ctx())
                             SupabaseHub.rebuild()
                             SupabaseHub.refreshAll(force = true)
                             scope2.launch {
@@ -467,6 +469,7 @@ fun SettingsScreen() {
                                     LocalStore.supabaseUrl = sbUrl
                                     LocalStore.supabaseKey = sbKey
                                     LocalStore.supabasePat = sbPat
+                                    dev.nixi.store.ConfigSync.persistSoon(dev.nixi.NixiApp.ctx())
                                     SupabaseHub.rebuild()
                                     SupabaseHub.refreshAll(force = true)
                                     val out = dev.nixi.db.DbProvisioner.provision()

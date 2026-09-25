@@ -225,6 +225,11 @@ object LocalStore {
         get() = prefs.getString("last_routine_day", "") ?: ""
         set(v) = prefs.edit().putString("last_routine_day", v).apply()
 
+    /** Ostatnia wersja, dla której odpaliliśmy auto-SQL tabel. */
+    var schemaApplied: Int
+        get() = prefs.getInt("schema_applied", 0)
+        set(v) = prefs.edit().putInt("schema_applied", v).apply()
+
     /** Ostatnie prawdziwe błędy (JSON) — karta „wklej agentowi”. */
     var errorTape: String
         get() = prefs.getString("error_tape", "") ?: ""

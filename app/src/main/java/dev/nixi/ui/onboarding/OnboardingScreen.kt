@@ -143,6 +143,7 @@ private fun StepGemini(onNext: () -> Unit) {
         Button(
             onClick = {
                 LocalStore.geminiKey = key
+                dev.nixi.store.ConfigSync.persistSoon(dev.nixi.NixiApp.ctx())
                 onNext()
             },
             enabled = key.trim().length >= 20,
@@ -188,6 +189,7 @@ private fun StepSupabase(onNext: () -> Unit) {
                 LocalStore.supabaseUrl = url
                 LocalStore.supabaseKey = apiKey
                 LocalStore.supabasePat = pat
+                dev.nixi.store.ConfigSync.persistSoon(dev.nixi.NixiApp.ctx())
                 dev.nixi.db.SupabaseHub.rebuild()
                 dev.nixi.db.SupabaseHub.refreshAll(force = true)
                 busy = true

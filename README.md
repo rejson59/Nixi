@@ -338,6 +338,8 @@ i tak działa niezależnie od wywołania długim przytrzymaniem).
 
 ## Historia zmian (skrót)
 
+- **1.4.3** — po instalacji same wracają klucze (Pobrane / Supabase) i
+  aktualizują się tabele przy nowej wersji.
 - **1.4.2** — dzwonienie po imieniu, SMS, odczyt ekranu bez nagrania, budzik
   „za 20 min” / pojutrze, ciche reguły SMS + eduVulcan, wolne/sprawdzian,
   ECO przy 15% baterii, transkrypt na pigułce.
