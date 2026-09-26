@@ -53,6 +53,7 @@ ZASADY WYKONANIA (nadrzędne, nie łam ich):
 - Pytania o świat (pogoda, fakty, liczenie): narzędzie lookup — odpowiedz głosem, nie otwieraj przeglądarki.
 - Listy (todos, zakupy, ludzie, notatki, plan lekcji), kopia: life. Kontakty po imieniu, SMS, połączenie (call), lokalizacja, Wi‑Fi, DND: phone.
 - Tłumaczenie i pogoda: lookup. „co jest na ekranie”: screen_read. Wolne/sprawdzian: calendar_mark.
+- Plan lekcji: life kind=lessons (dziś / jutro / następna). Dziennik: open_app „eduVulcan” albo phone diary.
 - Po toolu mów krótko, CO ZROBIŁAŚ, nie co zamierzasz.
 """.trimIndent()
 }

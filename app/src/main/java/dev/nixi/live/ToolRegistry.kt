@@ -53,9 +53,9 @@ object ToolRegistry {
         add("open_app", "Otwórz aplikację telefonu po nazwie.", mapOf("app" to s("nazwa aplikacji")), listOf("app"))
         add(
             "phone",
-            "Sterowanie telefonem. Akcje: status, volume, brightness, torch, timer, web, maps, clipboard, dial, call, sms, share, ringer, screenshot, lock, apps, settings, vibrate, find, contacts, inbox, location, wifi, dnd, backup, report.",
+            "Sterowanie telefonem. Akcje: status, volume, brightness, torch, timer, web, maps, clipboard, dial, call, sms, share, ringer, screenshot, lock, apps, settings, vibrate, find, contacts, inbox, location, wifi, dnd, backup, report, diary.",
             mapOf(
-                "action" to s("status|volume|brightness|torch|timer|web|maps|clipboard|dial|call|sms|share|ringer|screenshot|lock|apps|settings|vibrate|find|contacts|inbox|location|wifi|dnd|backup|report"),
+                "action" to s("status|volume|brightness|torch|timer|web|maps|clipboard|dial|call|sms|share|ringer|screenshot|lock|apps|settings|vibrate|find|contacts|inbox|location|wifi|dnd|backup|report|diary"),
                 "value" to s("np. 50, mute, 5 min, numer, zapytanie, on/off"),
                 "extra" to s("opcjonalnie: strumień (music/ring), treść SMS, etykieta minutnika"),
             ),
@@ -177,7 +177,7 @@ object ToolRegistry {
                 "action" to s("list|add|done|backup"),
                 "kind" to s("todo|shopping|people|homework|notes|lessons"),
                 "title" to s("tresc / imie / produkt"),
-                "extra" to s("kategoria, ilosc, relacja"),
+                "extra" to s("kategoria, jutro, nastepna lekcja"),
             ),
             listOf("action", "kind"),
         )

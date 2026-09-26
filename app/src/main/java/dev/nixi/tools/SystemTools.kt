@@ -48,6 +48,17 @@ object SystemTools {
         val pm = ctx.packageManager
         val q = query.trim().lowercase()
         if (q.isBlank()) return ToolResult.fail("Podaj nazwę aplikacji.")
+        if (q.contains("dziennik") || q.contains("vulcan") || q.contains("eduvulcan")) {
+            val diary = dev.nixi.notif.DiaryApps.installed(ctx).firstOrNull()
+            if (diary != null) {
+                val i = pm.getLaunchIntentForPackage(diary)
+                if (i != null) {
+                    i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    ctx.startActivity(i)
+                    return ToolResult.ok("Otworzyłam dziennik.")
+                }
+            }
+        }
         return try {
             val byPkg = pm.getLaunchIntentForPackage(q)
             if (byPkg != null) {

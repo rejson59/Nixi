@@ -55,10 +55,11 @@ object PhoneTools {
             "hotspot" -> openSettings("hotspot")
             "report", "raport" -> report()
             "backup", "kopia" -> LifeTools.dumpBackup()
+            "diary", "dziennik", "vulcan", "eduvulcan" -> SystemTools.openApp("eduvulcan")
             else -> ToolResult.fail(
                 "Nie znam akcji „$action”. Dostępne: status, volume, brightness, torch, " +
                     "timer, web, maps, clipboard, dial, sms, share, ringer, screenshot, " +
-                    "lock, apps, settings, vibrate, find, contacts, inbox, location, wifi, report, call, dnd, backup."
+                    "lock, apps, settings, vibrate, find, contacts, inbox, location, wifi, report, call, dnd, backup, diary."
             )
         }
     } catch (t: Throwable) {

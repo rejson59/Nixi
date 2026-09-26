@@ -133,6 +133,7 @@ object CalendarTools {
         var lastTitle = ""
         for (e in events) {
             val eTitle = e.optString("title").lowercase()
+            if (e.optBoolean("manual", false)) continue
             if (e.optString("kind") == "zastepstwo") continue
             val subj = subject.lowercase()
             // dopasowanie po przedmiocie: albo tytuł zawiera przedmiot, albo odwrotnie,
@@ -171,6 +172,7 @@ object CalendarTools {
         val prefix = if (k == "wolne") "Wolne" else "Sprawdzian"
         for (e in events) {
             val eTitle = e.optString("title").lowercase()
+            if (e.optBoolean("manual", false)) continue
             if (e.optString("kind") == k) continue
             val subj = subject.lowercase()
             val matches = subj.isNotEmpty() && eTitle.isNotEmpty() && (

@@ -23,13 +23,13 @@ object SilentRules {
                 pkg, title, text, action,
                 kind = "sprawdzian",
                 titlePrefix = "Sprawdzian",
-                extract = Regex("""sprawdzian\s*[:\-–]?\s*(.+)""", RegexOption.IGNORE_CASE),
+                extract = Regex("""(?:sprawdzian|kartk[oó]wka)\s*[:\-–]?\s*(.+)""", RegexOption.IGNORE_CASE),
             )
             "calendar_day_off" -> markToday(
                 pkg, title, text, action,
                 kind = "wolne",
                 titlePrefix = "Wolne",
-                extract = Regex("""wolne\s*[:\-–]?\s*(.+)""", RegexOption.IGNORE_CASE),
+                extract = Regex("""(?:wolne|odwoła|odwol)\s*[:\-–]?\s*(.+)""", RegexOption.IGNORE_CASE),
             )
             "reminder" -> {
                 val whenTxt = action.optString("when", "za 30 min")

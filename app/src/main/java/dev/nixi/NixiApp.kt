@@ -68,6 +68,12 @@ class NixiApp : Application() {
             kotlinx.coroutines.delay(1200)
             runCatching { dev.nixi.store.ConfigSync.bootstrap(this@NixiApp) }
                 .onFailure { dev.nixi.util.LogBus.log("config.boot", it.message ?: "?", "warn") }
+            runCatching {
+                val d = dev.nixi.notif.DiaryApps.installed(this@NixiApp)
+                if (d.isNotEmpty()) {
+                    dev.nixi.util.LogBus.log("diary", "znaleziono: " + d.joinToString())
+                }
+            }
         }
 
         // Zaległe zapisy z kolejki offline (pamięć/logi z czasu bez sieci).

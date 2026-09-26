@@ -22,7 +22,7 @@ object LifeTools {
                     notes = k in listOf("note", "notatka", "notatki"))
             k in listOf("shop", "shopping", "zakupy", "zakup") -> shop(a, title, extra)
             k in listOf("person", "people", "ludzie", "osoba") -> people(a, title, extra)
-            k in listOf("lesson", "lessons", "lekcje", "plan") -> lessons()
+            k in listOf("lesson", "lessons", "lekcje", "plan") -> lessons("$a $title $extra")
             else -> ToolResult.fail("Podaj kind: todo, shopping, people, homework, notes albo lessons.")
         }
     }
@@ -135,11 +135,28 @@ object LifeTools {
         return ToolResult.ok("Brak sieci — $what czeka w kolejce i dojdzie samo.")
     }
 
-    private suspend fun lessons(): ToolResult {
+    private suspend fun lessons(hint: String): ToolResult {
         if (!SupabaseHub.available) return ToolResult.fail("Brak bazy — nie odczytam planu lekcji.")
+        val h = hint.lowercase()
+        val offset = when {
+            h.contains("pojutrze") -> 2
+            h.contains("jutro") || h.contains("tomorrow") -> 1
+            else -> 0
+        }
+        if (h.contains("nastep") || h.contains("następ") || h.contains("next") || h.contains("teraz")) {
+            return nextLesson()
+        }
+        return planFor(isoDow(offset), offset)
+    }
+
+    private fun isoDow(dayOffset: Int): Int {
         val cal = java.util.Calendar.getInstance()
+        cal.add(java.util.Calendar.DAY_OF_MONTH, dayOffset)
         val dow = cal.get(java.util.Calendar.DAY_OF_WEEK)
-        val iso = if (dow == java.util.Calendar.SUNDAY) 7 else dow - 1
+        return if (dow == java.util.Calendar.SUNDAY) 7 else dow - 1
+    }
+
+    private suspend fun planFor(iso: Int, offset: Int): ToolResult {
         val r = SupabaseHub.listRows(
             Tables.LESSONS,
             filters = mapOf("day_of_week" to "eq.$iso"),
@@ -147,13 +164,44 @@ object LifeTools {
             limit = 20,
         )
         if (!r.ok) return ToolResult.fail(r.error ?: "Brak planu lekcji.")
-        if (r.rows.isEmpty()) return ToolResult.ok("Dziś nie mam lekcji w planie.")
         val names = arrayOf("", "poniedziałek", "wtorek", "środa", "czwartek", "piątek", "sobota", "niedziela")
+        val whenTxt = when (offset) {
+            1 -> "jutro"
+            2 -> "pojutrze"
+            else -> "dziś"
+        }
         val day = names.getOrElse(iso) { "dzień $iso" }
+        if (r.rows.isEmpty()) return ToolResult.ok("$whenTxt ($day) nie mam lekcji w planie.")
         return ToolResult.ok(
-            "Plan ($day):\n" + r.rows.joinToString("\n") { o ->
+            "Plan $whenTxt ($day):\n" + r.rows.joinToString("\n") { o ->
                 "${o.optString("start")} ${o.optString("subject")} ${o.optString("room")} ${o.optString("teacher")}"
             }
+        )
+    }
+
+    private suspend fun nextLesson(): ToolResult {
+        val iso = isoDow(0)
+        val r = SupabaseHub.listRows(
+            Tables.LESSONS,
+            filters = mapOf("day_of_week" to "eq.$iso"),
+            orderBy = "start.asc",
+            limit = 20,
+        )
+        if (!r.ok) return ToolResult.fail(r.error ?: "Brak planu lekcji.")
+        if (r.rows.isEmpty()) return ToolResult.ok("Dziś nie mam już lekcji w planie.")
+        val now = java.util.Calendar.getInstance()
+        val nowMin = now.get(java.util.Calendar.HOUR_OF_DAY) * 60 + now.get(java.util.Calendar.MINUTE)
+        fun minutes(s: String): Int {
+            val p = s.trim().split(':', '.')
+            val h = p.getOrNull(0)?.toIntOrNull() ?: return 0
+            val m = p.getOrNull(1)?.toIntOrNull() ?: 0
+            return h * 60 + m
+        }
+        val next = r.rows.firstOrNull { minutes(it.optString("start")) >= nowMin }
+            ?: return ToolResult.ok("Dziś lekcje już się skończyły.")
+        return ToolResult.ok(
+            "Następna: ${next.optString("start")} ${next.optString("subject")} " +
+                "${next.optString("room")} ${next.optString("teacher")}".trim()
         )
     }
 

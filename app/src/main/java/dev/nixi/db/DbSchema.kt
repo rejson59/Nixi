@@ -267,6 +267,12 @@ object DbSchema {
         "insert into public.silent_rules (name, app_package, contains, action, active) values " +
             "('Wolne z dziennika', '', 'wolne', " +
             "'{\"type\": \"calendar_day_off\"}'::jsonb, true)",
+        "insert into public.silent_rules (name, app_package, contains, action, active) values " +
+            "('Kartkówka z dziennika', '', 'kartkówka', " +
+            "'{\"type\": \"calendar_test\"}'::jsonb, true)",
+        "insert into public.silent_rules (name, app_package, contains, action, active) values " +
+            "('Odwołane z dziennika', '', 'odwołan', " +
+            "'{\"type\": \"calendar_day_off\"}'::jsonb, true)",
         "insert into public.nixi_access (table_name, can_read, can_edit, can_delete) values " +
             Tables.CORE.filter { it != Tables.ACCESS }.joinToString(", ") {
                 val del = it in listOf(Tables.LOGS, Tables.ERRORS)

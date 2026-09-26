@@ -338,6 +338,8 @@ i tak działa niezależnie od wywołania długim przytrzymaniem).
 
 ## Historia zmian (skrót)
 
+- **1.4.5** — następna/jutrzejsza lekcja, otwarcie dziennika, kartkówka i
+  odwołane z powiadomień, ręczne edycje chronione też przy zastępstwie.
 - **1.4.4** — szyfrowana kopia ustawień, eduVulcan z listy aplikacji,
   ciche reguły nie nadpisują ręcznych edycji, tap na transkrypt pigułki.
 - **1.4.3** — po instalacji same wracają klucze (Pobrane / Supabase) i
