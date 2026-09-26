@@ -27,7 +27,7 @@ class NixiApp : Application() {
         LocalStore.init(this)
         dev.nixi.util.ErrorReport.load()
         // nowy zestaw zasad wykonania (bez pytań głosem) — nie trzymaj starego promptu
-        if (!LocalStore.promptStatic.contains("natychmiast koniec")) {
+        if (!LocalStore.promptStatic.contains("range=dalej")) {
             LocalStore.promptStaticAt = 0L
         }
         SupabaseHub.init(this)
@@ -76,6 +76,7 @@ class NixiApp : Application() {
                 }
             }
             runCatching { warnLowBattery() }
+            runCatching { dev.nixi.notif.ReminderScheduler.rescheduleAll(this@NixiApp) }
         }
 
         // Zaległe zapisy z kolejki offline (pamięć/logi z czasu bez sieci).

@@ -16,9 +16,14 @@ object CalendarTools {
 
     suspend fun list(range: String): ToolResult {
         if (!SupabaseHub.available) return ToolResult.fail("Supabase niedostępny.")
-        val (t0, t1) = when (range.lowercase()) {
+        val raw = range.lowercase()
+        if (raw.contains("dalej") || raw.contains("nastep") || raw.contains("następ") || raw.contains("next")) {
+            return nextUpcoming()
+        }
+        val (t0, t1) = when (raw) {
             "dziś", "today" -> TimeUtils.todayWindow()
             "jutro", "tomorrow" -> TimeUtils.windowFor(1)
+            "pojutrze" -> TimeUtils.windowFor(2)
             "tydzień", "week", "" -> {
                 val c = java.util.Calendar.getInstance()
                 val end = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_MONTH, 7) }
@@ -56,6 +61,25 @@ object CalendarTools {
             }
         }
         return ToolResult.ok("Wydarzenia:\n$list")
+    }
+
+    private suspend fun nextUpcoming(): ToolResult {
+        val now = System.currentTimeMillis()
+        val endCal = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_MONTH, 7) }
+        val f = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
+        f.timeZone = java.util.TimeZone.getDefault()
+        val events = SupabaseHub.calendarEventsBetween(f.format(java.util.Date(now)), f.format(endCal.time))
+        val next = events.minByOrNull { e ->
+            TimeUtils.parseFlexible(e.optString("start"))?.let { iso ->
+                runCatching { f.parse(iso)?.time }.getOrNull() ?: Long.MAX_VALUE
+            } ?: Long.MAX_VALUE
+        }
+        if (next == null) return ToolResult.ok("Nie mam nic w kalendarzu na najbliższy tydzień.")
+        return ToolResult.ok(
+            "Następne: ${TimeUtils.dateOf(next.optString("start"))} " +
+                "${TimeUtils.hourOf(next.optString("start"))} ${next.optString("title")}" +
+                next.optString("location").let { if (it.isBlank()) "" else " @$it" }
+        )
     }
 
     suspend fun add(title: String, start: String, end: String, location: String, notes: String, kind: String = "normal"): ToolResult {

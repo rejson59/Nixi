@@ -99,4 +99,22 @@ object MediaPauseController {
         dev.nixi.NixiState.emit(dev.nixi.NixiState.NixiEvent.MusicState(false))
         return resumed
     }
+
+    /** Następny / poprzedni utwór na aktywnej sesji. */
+    fun skip(next: Boolean): String? {
+        ensureInit()
+        val component = listenerComponent() ?: return null
+        val sessions = try {
+            mms.getActiveSessions(component) ?: emptyList()
+        } catch (_: Throwable) {
+            emptyList()
+        }
+        val s = sessions.firstOrNull { it.packageName != context().packageName } ?: return null
+        return try {
+            if (next) s.transportControls.skipToNext() else s.transportControls.skipToPrevious()
+            s.packageName
+        } catch (_: Throwable) {
+            null
+        }
+    }
 }

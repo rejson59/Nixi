@@ -338,6 +338,8 @@ i tak działa niezależnie od wywołania długim przytrzymaniem).
 
 ## Historia zmian (skrót)
 
+- **1.4.7** — następne wydarzenie, muzyka dalej/wstecz, pogoda z lokalizacji,
+  czytelne powiadomienia, przypomnienia offline i po restarcie.
 - **1.4.6** — pewniejsze kończenie rozmowy, restart mikrofonu, cichy dzwonek,
   zakupy/kontakty, niska bateria, kopia ustawień na starcie.
 - **1.4.5** — następna/jutrzejsza lekcja, otwarcie dziennika, kartkówka i

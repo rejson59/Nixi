@@ -55,7 +55,7 @@ object ToolRegistry {
             "phone",
             "Sterowanie telefonem. Akcje: status, volume, brightness, torch, timer, web, maps, clipboard, dial, call, sms, share, ringer, screenshot, lock, apps, settings, vibrate, find, contacts, inbox, location, wifi, dnd, backup, report, diary.",
             mapOf(
-                "action" to s("status|volume|brightness|torch|timer|web|maps|clipboard|dial|call|sms|share|ringer|screenshot|lock|apps|settings|vibrate|find|contacts|inbox|location|wifi|dnd|backup|report|diary"),
+                "action" to s("status|volume|brightness|torch|timer|web|maps|clipboard|dial|call|sms|share|ringer|screenshot|lock|apps|settings|vibrate|find|contacts|inbox|location|wifi|dnd|backup|report|diary|next|prev"),
                 "value" to s("np. 50, mute, 5 min, numer, zapytanie, on/off"),
                 "extra" to s("opcjonalnie: strumień (music/ring), treść SMS, etykieta minutnika"),
             ),
@@ -95,8 +95,8 @@ object ToolRegistry {
             mapOf("sql" to s("pojedyncze zapytanie CREATE/ALTER")), listOf("sql"))
 
         // kalendarz
-        add("calendar_list", "Wyświetl wydarzenia kalendarza NIXI (dla: dziś, jutro, tydzień albo zakres dat).",
-            mapOf("range" to s("np. dziś, jutro, tydzień, 2026-09-25")), emptyList())
+        add("calendar_list", "Wyświetl wydarzenia kalendarza NIXI (dziś, jutro, pojutrze, tydzień, dalej = następne, albo data).",
+            mapOf("range" to s("np. dziś, jutro, pojutrze, tydzień, dalej, 2026-09-25")), emptyList())
         add("calendar_add", "Dodaj wydarzenie do kalendarza NIXI.",
             mapOf("title" to s("tytuł"), "start" to s("np. 15:30 albo 2026-09-25T15:30"),
                 "end" to s("koniec (opcjonalnie)"), "location" to s("miejsce (opcjonalnie)"),

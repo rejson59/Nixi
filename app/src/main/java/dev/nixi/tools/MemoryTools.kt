@@ -35,6 +35,12 @@ object MemoryTools {
         if (!SupabaseHub.available) return ToolResult.fail("Supabase niedostępny.")
         val facts = SupabaseHub.loadFacts(60)
         if (facts.isEmpty()) return ToolResult.ok("Nie mam jeszcze zapamiętanych faktów.")
+        if (query.isBlank()) {
+            val list = facts.take(6).joinToString("\n") {
+                "- [${it.optString("category")}] ${it.optString("value")}"
+            }
+            return ToolResult.ok("Ostatnie fakty:\n$list")
+        }
         val words = query.lowercase().split(Regex("[^a-ząćęłńóśźż0-9]+")).filter { it.length > 2 }
         val scored = facts.map { f ->
             val text = (f.optString("value") + " " + f.optString("key")).lowercase()

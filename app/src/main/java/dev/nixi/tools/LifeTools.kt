@@ -39,12 +39,11 @@ object LifeTools {
             "list", "lista", "" -> {
                 val r = SupabaseHub.listRows(Tables.TODOS, orderBy = "created_at.desc", limit = 25)
                 if (!r.ok) return ToolResult.fail(r.error ?: "Nie odczytałam todos.")
-                val rows = r.rows
-                if (rows.isEmpty()) ToolResult.ok("Lista zadań pusta.")
+                val open = r.rows.filter { !it.optBoolean("done") }
+                if (open.isEmpty()) ToolResult.ok("Lista zadań pusta (albo wszystko odhaczone).")
                 else ToolResult.ok(
-                    rows.joinToString("\n") { o ->
-                        val d = if (o.optBoolean("done")) "✓" else "○"
-                        "$d ${o.optString("title")} [${o.optString("category")}] id=${o.optString("id").take(8)}"
+                    open.joinToString("\n") { o ->
+                        "○ ${o.optString("title")} [${o.optString("category")}]"
                     }
                 )
             }

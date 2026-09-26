@@ -15,6 +15,7 @@ import android.os.VibratorManager
 import android.provider.AlarmClock
 import android.provider.Settings
 import dev.nixi.NixiState
+import dev.nixi.audio.MediaPauseController
 import dev.nixi.accessibility.NixiAccessibilityService
 import dev.nixi.util.LogBus
 
@@ -40,6 +41,8 @@ object PhoneTools {
             "call", "polacz", "połącz" -> dial(value, callNow = true)
             "sms", "wiadomosc", "wiadomość" -> sms(value, extra)
             "share", "udostepnij", "udostępnij" -> share(value.ifBlank { NixiState.lastSaid.value })
+            "next", "nastepny", "następny", "skip" -> mediaSkip(true)
+            "prev", "previous", "poprzedni" -> mediaSkip(false)
             "ringer", "dzwonek", "tryb" -> ringer(value)
             "screenshot", "zrzut" -> screenshot()
             "lock", "zablokuj" -> lock()
@@ -195,8 +198,11 @@ object PhoneTools {
         val v = norm(value)
         return if (v in listOf("get", "odczyt", "pokaż", "pokaz", "")) {
             val t = cm.primaryClip?.getItemAt(0)?.coerceToText(ToolContext.app)?.toString().orEmpty()
-            if (t.isBlank()) ToolResult.ok("Schowek jest pusty.")
-            else ToolResult.ok("W schowku: ${t.take(400)}")
+            if (t.isBlank()) {
+                val last = NixiState.lastSaid.value
+                if (last.isNotBlank()) ToolResult.ok("Schowek pusty. Ostatnio powiedziałam: ${last.take(300)}")
+                else ToolResult.ok("Schowek jest pusty.")
+            } else ToolResult.ok("W schowku: ${t.take(400)}")
         } else {
             val text = extra.ifBlank { value }
             cm.setPrimaryClip(ClipData.newPlainText("nixi", text))
@@ -458,14 +464,38 @@ object PhoneTools {
             runCatching { lm.getLastKnownLocation(p) }.getOrNull()
         }.maxByOrNull { it.time }
             ?: return ToolResult.ok("Nie mam jeszcze ostatniej lokalizacji.")
-        return ToolResult.ok("Ostatnia pozycja: ${loc.latitude}, ${loc.longitude}.")
+        val geo = runCatching {
+            android.location.Geocoder(ToolContext.app, java.util.Locale("pl"))
+                .getFromLocation(loc.latitude, loc.longitude, 1)
+                ?.firstOrNull()
+        }.getOrNull()
+        val place = listOfNotNull(geo?.thoroughfare, geo?.locality, geo?.countryName)
+            .filter { it.isNotBlank() }.joinToString(", ")
+        return ToolResult.ok(
+            "Ostatnia pozycja: ${loc.latitude}, ${loc.longitude}." +
+                if (place.isNotBlank()) " ($place)" else ""
+        )
     }
 
     private fun wifi(): ToolResult {
         val wm = ToolContext.app.applicationContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
         val on = wm.isWifiEnabled
-        launch(Intent(Settings.ACTION_WIFI_SETTINGS))
-        return ToolResult.ok(if (on) "Wi‑Fi włączone — otworzyłam ustawienia." else "Wi‑Fi wyłączone — otworzyłam ustawienia.")
+        val ssid = runCatching {
+            wm.connectionInfo?.ssid?.trim('"')?.takeIf { it.isNotBlank() && it != "<unknown ssid>" }
+        }.getOrNull()
+        return ToolResult.ok(
+            when {
+                !on -> "Wi‑Fi wyłączone."
+                ssid != null -> "Wi‑Fi: $ssid."
+                else -> "Wi‑Fi włączone (sieć bez nazwy — często brak zgody na lokalizację)."
+            }
+        )
+    }
+
+    private fun mediaSkip(next: Boolean): ToolResult {
+        val pkg = MediaPauseController.skip(next)
+            ?: return ToolResult.fail("Nie widzę aktywnej muzyki (włącz dostęp do powiadomień).")
+        return ToolResult.ok(if (next) "Następny utwór ($pkg)." else "Poprzedni utwór ($pkg).")
     }
 
     private fun report(): ToolResult {

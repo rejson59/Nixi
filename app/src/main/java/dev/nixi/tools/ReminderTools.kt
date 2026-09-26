@@ -62,7 +62,16 @@ object ReminderTools {
             // wcześniej wysyłaliśmy tu millisekundy i PostgREST odrzucał insert.
         }
         val ins = runCatching { SupabaseHub.c().insert(Tables.REMINDERS, row) }.getOrNull()
-        if (ins == null || !ins.ok) return ToolResult.fail("Błąd zapisu: ${ins?.error}")
+        if (ins == null || !ins.ok) {
+            if (SupabaseHub.isConfigured()) {
+                dev.nixi.db.OfflineQueue.enqueue(
+                    ToolContext.app, dev.nixi.db.OfflineQueue.TYPE_ROW,
+                    JSONObject().put("table", Tables.REMINDERS).put("row", row),
+                )
+            }
+            scheduleAlarm(ToolContext.app, System.currentTimeMillis() % Int.MAX_VALUE, firesAt.time, title)
+            return ToolResult.ok("Brak sieci — przypomnienie „$title” i tak uzbroiłam lokalnie (${fmt.format(firesAt)}).")
+        }
 
         val id = ins.rows.firstOrNull()?.optLong("id", 0) ?: 0L
         if (id > 0) scheduleAlarm(ToolContext.app, id, firesAt.time, title)

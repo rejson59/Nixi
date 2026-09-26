@@ -88,6 +88,8 @@ object WakeWatchdog {
         NixiApp.scope.launch {
             runCatching { OfflineQueue.flush(app) }
                 .onFailure { LogBus.log("queue.flush", it.message ?: "?", "warn") }
+            runCatching { dev.nixi.notif.ReminderScheduler.rescheduleAll(app) }
+                .onFailure { LogBus.log("reminder.watchdog", it.message ?: "?", "warn") }
         }
         // cicha rutyna rano: powiadomienie, bez nowej sesji
         val h = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)

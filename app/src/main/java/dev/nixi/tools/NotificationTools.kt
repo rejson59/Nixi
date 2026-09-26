@@ -2,6 +2,7 @@ package dev.nixi.tools
 
 import android.service.notification.StatusBarNotification
 import dev.nixi.notif.NixiNotificationListener
+import dev.nixi.tools.ToolContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -20,8 +21,13 @@ object NotificationTools {
             val raw: Array<StatusBarNotification>? = listener.getActiveNotifications()
             val active = raw ?: emptyArray()
             val fmt = SimpleDateFormat("HH:mm", Locale("pl"))
+            val self = ToolContext.app.packageName
+            val pm = ToolContext.app.packageManager
             val filtered = active.toList().asReversed()
-                .filter { s -> appFilter.isBlank() || s.packageName.lowercase().contains(appFilter.lowercase()) }
+                .filter { s -> s.packageName != self }
+                .filter { s -> appFilter.isBlank() || s.packageName.lowercase().contains(appFilter.lowercase()) ||
+                    runCatching { pm.getApplicationLabel(pm.getApplicationInfo(s.packageName, 0)).toString() }
+                        .getOrDefault("").lowercase().contains(appFilter.lowercase()) }
                 .take(limit.coerceIn(1, 30))
             if (filtered.isEmpty()) {
                 ToolResult.ok("Brak nowych powiadomień${if (appFilter.isNotBlank()) " z $appFilter" else ""}.")
@@ -32,7 +38,10 @@ object NotificationTools {
                             val extras = n.notification.extras
                             val t = extras?.getCharSequence("android.title")?.toString().orEmpty()
                             val b = extras?.getCharSequence("android.text")?.toString().orEmpty()
-                            "- [${n.packageName}] ${fmt.format(Date(n.postTime))}: $t — $b"
+                            val app = runCatching {
+                                pm.getApplicationLabel(pm.getApplicationInfo(n.packageName, 0)).toString()
+                            }.getOrDefault(n.packageName)
+                            "- [$app] ${fmt.format(Date(n.postTime))}: $t — $b".trim(' ', '—')
                         }.joinToString("\n")
                 )
             }
