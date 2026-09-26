@@ -173,15 +173,30 @@ object AudioBus {
             return null
         }
         val bufSize = maxOf(minBuf, READ_SAMPLES * 2 * 4)
-        val rec = AudioRecord(
+        val sources = intArrayOf(
             MediaRecorder.AudioSource.VOICE_RECOGNITION,
-            SAMPLE_RATE,
-            AudioFormat.CHANNEL_IN_MONO,
-            AudioFormat.ENCODING_PCM_16BIT,
-            bufSize,
+            MediaRecorder.AudioSource.MIC,
+            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+            MediaRecorder.AudioSource.CAMCORDER,
         )
-        if (rec.state != AudioRecord.STATE_INITIALIZED) {
-            runCatching { rec.release() }
+        var rec: AudioRecord? = null
+        for (src in sources) {
+            rec = runCatching {
+                AudioRecord(
+                    src, SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT, bufSize,
+                )
+            }.getOrNull()
+            if (rec != null && rec.state == AudioRecord.STATE_INITIALIZED) {
+                if (src != MediaRecorder.AudioSource.VOICE_RECOGNITION) {
+                    LogBus.log("audio.source", "mikrofon źródło=$src")
+                }
+                break
+            }
+            runCatching { rec?.release() }
+            rec = null
+        }
+        if (rec == null) {
             lastError = "AudioRecord nie zainicjalizowany"
             return null
         }

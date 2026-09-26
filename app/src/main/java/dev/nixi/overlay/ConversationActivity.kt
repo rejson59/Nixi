@@ -99,19 +99,23 @@ class ConversationActivity : ComponentActivity() {
 
     /** Znacznik czasu ostatniego pytania o zgodę (ochrona przed podwójnym dialogiem). */
     private var lastProjectionAsk = 0L
+    private var projectionOnly = false
 
     private val projectionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
             NixiState.manualMode.value = true
+            NixiState.wantScreenCapture.value = false
             ScreenCaptureService.start(this, result.resultCode, result.data!!)
             LiveSessionService.instance?.onScreenConsent()
             LogBus.log("manual.consent", "tryb ręczny gotowy")
         } else {
-            // brak zgody: NIXI musi o tym wiedzieć i nie może zostać w stanie „manual”
             LiveSessionService.instance?.onScreenDenied()
             LogBus.log("manual.denied", "użytkownik odmówił", "warn")
+        }
+        if (projectionOnly) {
+            finish()
         }
     }
 
@@ -139,8 +143,24 @@ class ConversationActivity : ComponentActivity() {
             )
         }
 
+        projectionOnly = intent?.getBooleanExtra("projection_only", false) == true ||
+            ConversationHud.isShowing()
+
+        if (intent?.getBooleanExtra("start_session", false) == true &&
+            !LiveSessionService.running
+        ) {
+            val trigger = intent.getStringExtra(LiveSessionService.EXTRA_TRIGGER) ?: "button"
+            LiveSessionService.start(this, trigger)
+        }
+
         if (intent?.getBooleanExtra("ask_projection", false) == true) {
             requestProjection()
+        }
+
+        if (projectionOnly) {
+            // tylko dialog zgody — pigułka overlay zostaje jedna
+            window.setLayout(1, 1)
+            return
         }
 
         setContent {
@@ -153,6 +173,7 @@ class ConversationActivity : ComponentActivity() {
                             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     )
                 },
+                enableAutoManual = true,
             )
         }
     }
@@ -189,6 +210,7 @@ fun ConversationUi(
     onClose: () -> Unit,
     onManualMode: () -> Unit,
     onOpenApp: () -> Unit,
+    enableAutoManual: Boolean = true,
 ) {
     val context = LocalContext.current
     val state by NixiState.orb.collectAsState()
@@ -211,6 +233,7 @@ fun ConversationUi(
     val wantCapture by NixiState.wantScreenCapture.collectAsState()
     // JEDNA reakcja na żądanie trybu ręcznego (bez podwójnych dialogów).
     LaunchedEffect(manual, wantCapture) {
+        if (!enableAutoManual) return@LaunchedEffect
         if ((manual || wantCapture) && !ScreenCaptureService.isRunning()) onManualMode()
     }
 

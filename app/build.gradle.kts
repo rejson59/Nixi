@@ -14,8 +14,8 @@ android {
         targetSdk = 34
         // versionCode trzymamy rosnąco, żeby telefon widział aktualizacje
         // (nie musimy jej podnosić przy każdym commicie — tylko przy wydaniu).
-        versionCode = 22
-        versionName = "1.4.7"
+        versionCode = 23
+        versionName = "1.4.8"
         vectorDrawables { useSupportLibrary = true }
     }
 

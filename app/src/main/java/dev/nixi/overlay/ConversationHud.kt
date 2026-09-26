@@ -39,6 +39,7 @@ object ConversationHud {
 
     fun isShowing(): Boolean = view != null
 
+    @Synchronized
     fun show(context: Context) {
         if (view != null) return
         if (!canShow(context)) return
@@ -72,15 +73,17 @@ object ConversationHud {
                         hide()
                     },
                     onManualMode = {
-                        // zgoda MediaProjection wymaga Activity — otwieramy cienkie okno
+                        // zgoda MediaProjection wymaga Activity — NIE druga pigułka
                         runCatching {
                             app.startActivity(
                                 Intent(app, ConversationActivity::class.java)
                                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                     .putExtra("ask_projection", true)
+                                    .putExtra("projection_only", true)
                             )
                         }
                     },
+                    enableAutoManual = true,
                     onOpenApp = {
                         runCatching {
                             app.startActivity(
@@ -103,6 +106,7 @@ object ConversationHud {
         }
     }
 
+    @Synchronized
     fun hide() {
         val v = view ?: return
         view = null
@@ -143,6 +147,7 @@ object ConversationHud {
 /** Jedno miejsce: overlay jeśli można, inaczej cienka aktywność. */
 object ConversationHost {
     fun show(context: Context) {
+        if (ConversationHud.isShowing()) return
         val km = context.getSystemService(Context.KEYGUARD_SERVICE) as? android.app.KeyguardManager
         val locked = km?.isKeyguardLocked == true
         if (!locked && ConversationHud.canShow(context)) {

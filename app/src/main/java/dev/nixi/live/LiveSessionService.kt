@@ -66,6 +66,9 @@ class LiveSessionService : Service() {
         @Volatile var running = false
             private set
 
+        /** Żeby dwa startForegroundService nie zrobiły dwóch sesji / dwóch pigułek. */
+        private val startGate = java.util.concurrent.atomic.AtomicBoolean(false)
+
         @Volatile var instance: LiveSessionService? = null
             private set
 
@@ -73,8 +76,7 @@ class LiveSessionService : Service() {
         private val decisions = ConcurrentHashMap<String, CompletableDeferred<Boolean>>()
 
         fun start(context: Context, trigger: String) {
-            if (running) {
-                // sesja już trwa — nie zaczynamy drugiej
+            if (running || startGate.get()) {
                 LogBus.log("live.start", "sesja już trwa — ignoruję start ($trigger)")
                 return
             }
@@ -88,19 +90,29 @@ class LiveSessionService : Service() {
                 )
                 return
             }
+            if (!startGate.compareAndSet(false, true)) return
             val intent = Intent(context, LiveSessionService::class.java)
                 .putExtra(EXTRA_TRIGGER, trigger)
             try {
                 context.startForegroundService(intent)
             } catch (t: Throwable) {
-                // Android 12+: start FGS z tła bywa zabroniony (np. z BootReceivera)
+                startGate.set(false)
                 LogBus.log("live.start", "nie mogę wystartować usługi: ${t.message}", "error")
-                ActionNotifier.notify(
-                    context, "NIXI",
-                    "System nie pozwolił uruchomić sesji w tle. Otwórz aplikację i spróbuj ponownie.",
-                    short = false
-                )
+                // Z tła Android 14 często blokuje FGS mikrofonu — otwórz okno
+                // (to jest już foreground) i spróbuj stamtąd.
+                runCatching {
+                    context.startActivity(
+                        Intent(context, dev.nixi.overlay.ConversationActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            .putExtra("start_session", true)
+                            .putExtra(EXTRA_TRIGGER, trigger)
+                    )
+                }
             }
+        }
+
+        internal fun releaseStartGate() {
+            startGate.set(false)
         }
 
         /** Grzeczne zakończenie sesji (np. przycisk „koniec” w oknie rozmowy). */
@@ -181,13 +193,22 @@ class LiveSessionService : Service() {
         NixiState.wakeTrigger = trigger
         running = true
         if (!startForegroundCompat("NIXI rozmawia", "Dotknij, aby otworzyć okno rozmowy")) {
-            // np. Android 14+ nie pozwolił na mikrofon w tle — nie zaczynamy sesji
             running = false
+            sessionStarted.set(false)
+            startGate.set(false)
             ActionNotifier.notify(
                 this, "NIXI",
-                "System nie pozwolił rozpocząć rozmowy w tle. Otwórz aplikację i spróbuj z niej.",
-                short = false
+                "System nie pozwolił na mikrofon w tle. Otwieram okno rozmowy — spróbuj z niego.",
+                short = true
             )
+            runCatching {
+                startActivity(
+                    Intent(this, dev.nixi.overlay.ConversationActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        .putExtra("start_session", true)
+                        .putExtra(EXTRA_TRIGGER, trigger)
+                )
+            }
             stopSelf()
             return START_NOT_STICKY
         }
@@ -849,6 +870,7 @@ class LiveSessionService : Service() {
         if (!ended.compareAndSet(false, true)) return
         LogBus.log("live.end", reason)
         running = false
+        startGate.set(false)
         NixiApp.scope.launch {
             runCatching {
                 val duration = (System.currentTimeMillis() - sessionStart) / 1000
@@ -921,23 +943,40 @@ class LiveSessionService : Service() {
         }
     }
 
-    private fun startForegroundCompat(title: String, text: String): Boolean = try {
+    private fun startForegroundCompat(title: String, text: String): Boolean {
         val notif = ActionNotifier.fgsNotification(title, text, NOTIF_ID)
         if (android.os.Build.VERSION.SDK_INT >= 29) {
-            startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
-        } else {
-            startForeground(NOTIF_ID, notif)
+            try {
+                startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+                return true
+            } catch (t: Throwable) {
+                LogBus.log("live.fgs", "mikrofon FGS: ${t.message}", "warn")
+            }
+            // HyperOS/Android 14: drugi FGS mikrofonu z tła. Spróbuj bez typu,
+            // potem jako „connectedDevice” nie — zostaje zwykły startForeground.
+            try {
+                @Suppress("DEPRECATION")
+                startForeground(NOTIF_ID, notif)
+                return true
+            } catch (t: Throwable) {
+                LogBus.log("live.fgs", "startForeground nieudany: ${t.message}", "error")
+                return false
+            }
         }
-        true
-    } catch (t: Throwable) {
-        LogBus.log("live.fgs", "startForeground nieudany: ${t.message}", "error")
-        false
+        return try {
+            startForeground(NOTIF_ID, notif)
+            true
+        } catch (t: Throwable) {
+            LogBus.log("live.fgs", "startForeground nieudany: ${t.message}", "error")
+            false
+        }
     }
 
     override fun onDestroy() {
         super.onDestroy()
         if (instance === this) instance = null
         running = false
+        startGate.set(false)
         // Sprzątanie awaryjne (gdy system zabije usługę bez endSession)
         if (!ended.get()) {
             ended.set(true)

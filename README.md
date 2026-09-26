@@ -338,6 +338,8 @@ i tak działa niezależnie od wywołania długim przytrzymaniem).
 
 ## Historia zmian (skrót)
 
+- **1.4.8** — jedna pigułka przy trybie ręcznym, jeden start sesji,
+  mikrofon FGS z tła, zapasowe źródło AudioRecord.
 - **1.4.7** — następne wydarzenie, muzyka dalej/wstecz, pogoda z lokalizacji,
   czytelne powiadomienia, przypomnienia offline i po restarcie.
 - **1.4.6** — pewniejsze kończenie rozmowy, restart mikrofonu, cichy dzwonek,

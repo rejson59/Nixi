@@ -25,13 +25,14 @@ object SessionLauncher {
             dev.nixi.overlay.ConversationHost.show(context)
             return
         }
-        if (manual) NixiState.manualMode.value = true
-        // pauza multimediów to wywołania binderowe — trzymamy je z dala od
-        // wątku głównego (ryzyko ANR przy wolnym menedżerze sesji)
+        // Nie ustawiaj manualMode przed zgodą — to odpalało drugą pigułkę
+        // i drugi dialog nagrania ekranu.
+        if (manual) NixiState.wantScreenCapture.value = true
         dev.nixi.NixiApp.scope.launch {
             runCatching { MediaPauseController.pauseAll() }
         }
-        LiveSessionService.start(context, trigger)
+        // Najpierw okno (foreground), potem FGS mikrofonu — Android 14.
         dev.nixi.overlay.ConversationHost.show(context)
+        LiveSessionService.start(context, trigger)
     }
 }
