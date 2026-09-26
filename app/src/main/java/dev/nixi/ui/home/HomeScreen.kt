@@ -70,6 +70,7 @@ fun HomeScreen() {
     val audioError by NixiState.lastAudioError.collectAsState()
     val inSession by NixiState.inSession.collectAsState()
     val sessionError by NixiState.lastSessionError.collectAsState()
+    val configHint by NixiState.configHint.collectAsState()
     val checkItems by NixiState.selfCheck.collectAsState()
     val tape by dev.nixi.util.ErrorReport.items.collectAsState()
     val checkRunning by NixiState.selfCheckRunning.collectAsState()
@@ -198,6 +199,10 @@ fun HomeScreen() {
                     else -> NixiOk
                 },
             ) {
+                if (configHint.isNotBlank()) {
+                    Text(configHint, color = NixiTextDim, fontSize = 12.sp)
+                    Spacer(Modifier.height(8.dp))
+                }
                 if (sessionError.isNotBlank() && !inSession) {
                     Text(
                         "Ostatnia próba rozmowy nie udała się:",

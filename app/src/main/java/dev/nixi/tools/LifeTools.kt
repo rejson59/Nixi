@@ -68,12 +68,12 @@ object LifeTools {
             val r = SupabaseHub.listRows(Tables.SHOPPING, orderBy = "created_at.desc", limit = 40)
             if (!r.ok) ToolResult.fail(r.error ?: "Nie odczytałam zakupów.")
             val rows = r.rows
-            if (rows.isEmpty()) ToolResult.ok("Lista zakupów pusta.")
+            val open = rows.filter { !it.optBoolean("done") }
+            if (open.isEmpty()) ToolResult.ok("Lista zakupów pusta (albo wszystko odhaczone).")
             else ToolResult.ok(
-                rows.joinToString("\n") { o ->
-                    val d = if (o.optBoolean("done")) "✓" else "○"
+                "Do kupienia (${open.size}):\n" + open.joinToString("\n") { o ->
                     val q = o.optString("qty")
-                    "$d ${o.optString("item")}${if (q.isNotBlank()) " ($q)" else ""}"
+                    "○ ${o.optString("item")}${if (q.isNotBlank()) " ($q)" else ""}"
                 }
             )
         }
@@ -111,7 +111,9 @@ object LifeTools {
                 else ToolResult.ok("Zapamiętałam osobę: $title")
             }
         }
-        else -> ToolResult.fail("Akcja: list, add.")
+        "call", "zadzwon", "zadzwoń", "dzwon" -> PhoneTools.run("call", title, extra)
+        "sms", "napisz", "wiadomosc", "wiadomość" -> PhoneTools.run("sms", title, extra)
+        else -> ToolResult.fail("Akcja: list, add, call, sms.")
     }
 
     private suspend fun markDone(table: String, query: String, field: String): ToolResult {

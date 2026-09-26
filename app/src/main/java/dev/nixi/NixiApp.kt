@@ -2,6 +2,7 @@ package dev.nixi
 
 import android.app.Application
 import android.content.Context
+import android.os.BatteryManager
 import dev.nixi.db.SupabaseHub
 import dev.nixi.notif.ActionNotifier
 import dev.nixi.store.LocalStore
@@ -26,7 +27,7 @@ class NixiApp : Application() {
         LocalStore.init(this)
         dev.nixi.util.ErrorReport.load()
         // nowy zestaw zasad wykonania (bez pytań głosem) — nie trzymaj starego promptu
-        if (!LocalStore.promptStatic.contains("ZASADY WYKONANIA")) {
+        if (!LocalStore.promptStatic.contains("natychmiast koniec")) {
             LocalStore.promptStaticAt = 0L
         }
         SupabaseHub.init(this)
@@ -74,6 +75,7 @@ class NixiApp : Application() {
                     dev.nixi.util.LogBus.log("diary", "znaleziono: " + d.joinToString())
                 }
             }
+            runCatching { warnLowBattery() }
         }
 
         // Zaległe zapisy z kolejki offline (pamięć/logi z czasu bez sieci).
@@ -84,11 +86,26 @@ class NixiApp : Application() {
 
         // Diagnostyka audio na ekranie głównym (np. „mikrofon zajęty przez rozmowę”).
         scope.launch {
-            dev.nixi.NixiState.events.collect { e ->
-                if (e is dev.nixi.NixiState.NixiEvent.ErrorHappened && e.tag == "audio") {
-                    dev.nixi.NixiState.lastAudioError.value = e.message
+            NixiState.events.collect { e ->
+                if (e is NixiState.NixiEvent.ErrorHappened && e.tag == "audio") {
+                    NixiState.lastAudioError.value = e.message
                 }
             }
         }
+    }
+
+    private fun warnLowBattery() {
+        val bm = getSystemService(BATTERY_SERVICE) as BatteryManager
+        val level = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+        if (level !in 1..14) return
+        val day = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+            .format(java.util.Date())
+        if (LocalStore.batteryWarnDay == day) return
+        LocalStore.batteryWarnDay = day
+        ActionNotifier.notify(
+            this, "NIXI", "Bateria $level% — nasłuch może paść, gdy telefon się wyłączy.",
+            short = true,
+        )
+        NixiState.configHint.value = "Bateria $level%."
     }
 }

@@ -79,6 +79,9 @@ object NixiState {
      */
     val lastSessionError = MutableStateFlow("")
 
+    /** Krótki komunikat po starcie (kopia ustawień / niska bateria). */
+    val configHint = MutableStateFlow("")
+
     /**
      * Wynik samokontroli („Sprawdź NIXI”): opis krok po kroku, co działa,
      * a co nie — klucz API, model, mikrofon, Supabase.

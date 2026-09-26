@@ -24,12 +24,20 @@ object LookupTools {
         tryMath(q)?.let { return ToolResult.ok(it) }
         val low = q.lowercase()
         return try {
-            if (isTranslate(low)) translate(q)
-            else if (isWeather(low)) weather(q)
-            else fact(q)
+            lookupOnce(q, low)
         } catch (t: Throwable) {
-            ToolResult.fail("Nie doszłam do sieci: ${t.message}")
+            try {
+                lookupOnce(q, low)
+            } catch (t2: Throwable) {
+                ToolResult.fail("Nie doszłam do sieci: ${t2.message}")
+            }
         }
+    }
+
+    private fun lookupOnce(q: String, low: String): ToolResult {
+        return if (isTranslate(low)) translate(q)
+        else if (isWeather(low)) weather(q)
+        else fact(q)
     }
 
     private fun isTranslate(q: String) =

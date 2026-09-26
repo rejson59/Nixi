@@ -292,8 +292,8 @@ object ToolRegistry {
             )
             "session" -> when (args.optString("action", "end").lowercase()) {
                 "later", "poczekaj", "czekaj" -> {
-                    NixiState.sessionKeepAliveAt = System.currentTimeMillis()
-                    ToolResult.ok("Czekam dalej. Powiedz koniec, gdy skonczysz.")
+                    NixiState.sessionKeepAliveAt = System.currentTimeMillis() + 150_000L
+                    ToolResult.ok("Czekam jeszcze chwilę. Powiedz koniec, gdy skończysz.")
                 }
                 else -> {
                     LiveSessionService.stop(ToolContext.app, "narzedzie session")

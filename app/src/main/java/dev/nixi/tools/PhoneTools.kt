@@ -14,6 +14,7 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import android.provider.AlarmClock
 import android.provider.Settings
+import dev.nixi.NixiState
 import dev.nixi.accessibility.NixiAccessibilityService
 import dev.nixi.util.LogBus
 
@@ -38,7 +39,7 @@ object PhoneTools {
             "dial", "dzwon" -> dial(value, callNow = false)
             "call", "polacz", "połącz" -> dial(value, callNow = true)
             "sms", "wiadomosc", "wiadomość" -> sms(value, extra)
-            "share", "udostepnij", "udostępnij" -> share(value)
+            "share", "udostepnij", "udostępnij" -> share(value.ifBlank { NixiState.lastSaid.value })
             "ringer", "dzwonek", "tryb" -> ringer(value)
             "screenshot", "zrzut" -> screenshot()
             "lock", "zablokuj" -> lock()
@@ -51,7 +52,9 @@ object PhoneTools {
             "inbox", "smsy", "wiadomosci" -> inbox()
             "location", "lokalizacja", "gdzie" -> location()
             "wifi", "wi-fi" -> wifi()
-            "dnd", "nieprzeszkadzac", "cicho" -> openSettings("dnd")
+            "dnd", "nieprzeszkadzac" -> openSettings("dnd")
+            "cicho" -> ringer("cichy")
+            "bluetooth", "bt" -> openSettings("bt")
             "hotspot" -> openSettings("hotspot")
             "report", "raport" -> report()
             "backup", "kopia" -> LifeTools.dumpBackup()
@@ -59,7 +62,7 @@ object PhoneTools {
             else -> ToolResult.fail(
                 "Nie znam akcji „$action”. Dostępne: status, volume, brightness, torch, " +
                     "timer, web, maps, clipboard, dial, sms, share, ringer, screenshot, " +
-                    "lock, apps, settings, vibrate, find, contacts, inbox, location, wifi, report, call, dnd, backup, diary."
+                    "lock, apps, settings, vibrate, find, contacts, inbox, location, wifi, report, call, dnd, backup, diary, bluetooth."
             )
         }
     } catch (t: Throwable) {
@@ -85,7 +88,8 @@ object PhoneTools {
             SystemTools.now().text +
                 " Głośność multimediów: $vol/$max. Dzwonek: $ringer." +
                 (if (pct >= 0) " Jasność: $pct%." else "") +
-                (if (torchOn) " Latarka włączona." else "")
+                (if (torchOn) " Latarka włączona." else "") +
+                " Wyjście: ${outputRoute()}."
         )
     }
 
@@ -493,6 +497,22 @@ object PhoneTools {
 
     private fun audio(): AudioManager =
         ToolContext.app.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+
+    private fun outputRoute(): String {
+        val am = audio()
+        val types = runCatching {
+            am.getDevices(AudioManager.GET_DEVICES_OUTPUTS).map { it.type }
+        }.getOrDefault(emptyList())
+        return when {
+            types.any { t ->
+                t == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+                    (Build.VERSION.SDK_INT >= 31 && t == android.media.AudioDeviceInfo.TYPE_BLE_HEADSET)
+            } -> "słuchawki Bluetooth"
+            types.any { it == android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+                it == android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES } -> "słuchawki"
+            else -> "głośnik"
+        }
+    }
 
     private fun streamName(s: Int) = when (s) {
         AudioManager.STREAM_RING -> "dzwonka"

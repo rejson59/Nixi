@@ -206,6 +206,7 @@ object ConfigSync {
             if (local) {
                 SupabaseHub.rebuild()
                 LogBus.log("config.restore", "odtworzono z pliku")
+                dev.nixi.NixiState.configHint.value = "Wczytałam ustawienia z tego telefonu."
             }
         }
         if (LocalStore.supabaseUrl.isBlank() || LocalStore.supabaseKey.isBlank()) return
@@ -213,6 +214,7 @@ object ConfigSync {
         if (LocalStore.geminiKey.isBlank()) {
             if (pullCloud()) {
                 LogBus.log("config.restore", "odtworzono z Supabase")
+                dev.nixi.NixiState.configHint.value = "Wczytałam ustawienia z chmury."
             }
         }
         val ver = runCatching {

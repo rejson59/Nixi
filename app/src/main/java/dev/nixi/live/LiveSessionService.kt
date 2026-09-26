@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.os.Build
 import android.os.IBinder
 import dev.nixi.NixiApp
 import dev.nixi.NixiState
@@ -512,13 +513,10 @@ class LiveSessionService : Service() {
             }
 
             override fun onLevel(level: Float) {
-                // UWAGA: poziom leci ~15x/s, więc NIE może odświeżać licznika
-                // bezczynności — inaczej sesja nigdy się nie kończy.
-                if (level > 0.3f) lastUserActivity = System.currentTimeMillis()
-                // barge-in: przerwij głos NIXI, gdy zacząłem mówić.
-                // Wymagamy kilku głośnych klatek pod rząd, żeby własne echo
-                // z głośnika (albo stuknięcie) nie ucinało odpowiedzi.
-                loudFrames = if (level > BARGE_LEVEL) loudFrames + 1 else 0
+                // Poziom NIE resetuje bezczynności — szum w pokoju trzymałby
+                // sesję w nieskończoność. Liczy się transkrypt / narzędzie.
+                val barge = if (headsetOut()) BARGE_LEVEL * 0.7f else BARGE_LEVEL
+                loudFrames = if (level > barge) loudFrames + 1 else 0
                 val speaking = NixiState.orbState.value == NixiState.OrbState.SPEAKING ||
                     player.isPlaying()
                 if (speaking && loudFrames >= BARGE_FRAMES) {
@@ -538,6 +536,10 @@ class LiveSessionService : Service() {
         idleJob = scope.launch {
             while (running && !ended.get()) {
                 delay(5000)
+                if (!AudioBus.isRunning()) {
+                    LogBus.log("live.mic", "mikrofon padł w sesji — wznawiam", "warn")
+                    runCatching { streamAudio() }
+                }
                 val last = maxOf(lastUserActivity, NixiState.sessionKeepAliveAt)
                 val idle = System.currentTimeMillis() - last
                 val inManual = NixiState.manualMode.value
@@ -550,6 +552,41 @@ class LiveSessionService : Service() {
                     sendTextCounted("Użytkownik milczy od 20 sekund. Zapytaj jednym zdaniem, czy kończyć, albo czekaj.")
                 }
             }
+        }
+    }
+
+    private fun handleLocalPhrase(raw: String): Boolean {
+        val t = raw.lowercase().trim().trimEnd('.', '!', '?', ',', '…')
+        if (t.length < 4) return false
+        val later = t in setOf("później", "pozniej", "poczekaj", "czekaj", "jeszcze chwila", "nie kończ", "nie koncz")
+        val end = t in setOf(
+            "koniec", "do widzenia", "na razie", "cicho", "wyłącz się", "wylacz sie",
+            "dziękuję to wszystko", "dziekuje to wszystko", "stop", "zamknij się", "zamknij sie",
+        )
+        if (later) {
+            NixiState.sessionKeepAliveAt = System.currentTimeMillis() + 150_000L
+            LogBus.log("live.phrase", "później — czekam dłużej")
+            return true
+        }
+        if (end) {
+            LogBus.log("live.phrase", "koniec: $t")
+            endSession("komenda: $t")
+            return true
+        }
+        return false
+    }
+
+    private fun headsetOut(): Boolean {
+        return try {
+            val am = getSystemService(AUDIO_SERVICE) as android.media.AudioManager
+            am.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS).any {
+                it.type == android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+                    it.type == android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
+                    it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+                    (Build.VERSION.SDK_INT >= 31 && it.type == android.media.AudioDeviceInfo.TYPE_BLE_HEADSET)
+            }
+        } catch (_: Throwable) {
+            false
         }
     }
 
@@ -627,6 +664,7 @@ class LiveSessionService : Service() {
                 transcripts.add("user" to text)
                 NixiState.lastHeard.value = text.take(400)
                 lastUserActivity = System.currentTimeMillis()
+                if (handleLocalPhrase(text)) return
             }
         }
 

@@ -338,6 +338,8 @@ i tak działa niezależnie od wywołania długim przytrzymaniem).
 
 ## Historia zmian (skrót)
 
+- **1.4.6** — pewniejsze kończenie rozmowy, restart mikrofonu, cichy dzwonek,
+  zakupy/kontakty, niska bateria, kopia ustawień na starcie.
 - **1.4.5** — następna/jutrzejsza lekcja, otwarcie dziennika, kartkówka i
   odwołane z powiadomień, ręczne edycje chronione też przy zastępstwie.
 - **1.4.4** — szyfrowana kopia ustawień, eduVulcan z listy aplikacji,

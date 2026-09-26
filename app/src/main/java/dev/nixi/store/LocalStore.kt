@@ -230,6 +230,11 @@ object LocalStore {
         get() = prefs.getInt("schema_applied", 0)
         set(v) = prefs.edit().putInt("schema_applied", v).apply()
 
+    /** Dzień (yyyy-MM-dd), w którym ostrzegliśmy o niskiej baterii. */
+    var batteryWarnDay: String
+        get() = prefs.getString("battery_warn_day", "") ?: ""
+        set(v) = prefs.edit().putString("battery_warn_day", v).apply()
+
     /** Ostatnie prawdziwe błędy (JSON) — karta „wklej agentowi”. */
     var errorTape: String
         get() = prefs.getString("error_tape", "") ?: ""

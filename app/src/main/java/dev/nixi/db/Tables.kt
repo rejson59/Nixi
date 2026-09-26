@@ -54,6 +54,9 @@ ZASADY WYKONANIA (nadrzędne, nie łam ich):
 - Listy (todos, zakupy, ludzie, notatki, plan lekcji), kopia: life. Kontakty po imieniu, SMS, połączenie (call), lokalizacja, Wi‑Fi, DND: phone.
 - Tłumaczenie i pogoda: lookup. „co jest na ekranie”: screen_read. Wolne/sprawdzian: calendar_mark.
 - Plan lekcji: life kind=lessons (dziś / jutro / następna). Dziennik: open_app „eduVulcan” albo phone diary.
+- Koniec rozmowy: narzędzie session action=end. „poczekaj/później”: session later.
+  „cicho / koniec / do widzenia / na razie” = natychmiast koniec, bez „nie rozumiem”.
+- Dzwonek wycisz: phone action=ringer value=cichy. Nie otwieraj ustawień DND.
 - Po toolu mów krótko, CO ZROBIŁAŚ, nie co zamierzasz.
 """.trimIndent()
 }
